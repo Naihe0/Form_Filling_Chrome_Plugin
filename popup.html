@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>智能表单填充助手</title>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>智能表单填充助手</h1>
+        <div class="form-group">
+            <label for="apiKey">OpenAI API Key:</label>
+            <input type="password" id="apiKey" placeholder="请在此处粘贴您的 API Key">
+        </div>
+        <div class="form-group">
+            <label for="userProfile">用户个人资料:</label>
+            <textarea id="userProfile" rows="10" placeholder="请在此处粘贴您的个人资料..."></textarea>
+        </div>
+        <button id="saveButton">保存配置</button>
+        <hr>
+        <button id="fillButton">开始填充当前页面表单</button>
+        <div id="status"></div>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>
