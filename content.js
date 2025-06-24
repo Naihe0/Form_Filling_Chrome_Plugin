@@ -120,17 +120,30 @@
                                     let field = fields_to_fill.find(f => f.selector === selector);
 
                                     if (!field) {
-                                        const originalFieldFromAll = all_fields_on_page.find(f => f.selector === selector);
-                                        console.log(`[填充警告] LLM返回的选择器 "${selector}" 在待填充字段列表中未找到。将动态创建一个字段进行处理。`);
+                                        console.log(`[填充警告] LLM返回的选择器 \"${selector}\" 在待填充字段列表中未找到。将动态创建一个字段进行处理。`);
+                                        
+                                        // Attempt to find the original field from all extracted fields to get the HTML chunk
+                                        const originalFieldFromAll = this.allFields.find(f => f.selector === selector);
+                                        let chunk = originalFieldFromAll ? originalFieldFromAll.htmlChunk : null;
+
+                                        // If chunk is still not found, try to find the most relevant chunk
+                                        if (!chunk) {
+                                            const tempElement = document.querySelector(selector);
+                                            if (tempElement) {
+                                                const tempHtml = tempElement.outerHTML;
+                                                chunk = this.htmlChunks.find(c => c.includes(tempHtml)) || null;
+                                            }
+                                        }
+
                                         field = {
                                             selector: selector,
                                             action: (typeof value === 'boolean' && value === true) ? 'click' : 'fill',
                                             question: `(Inferred field for selector: ${selector})`,
-                                            htmlChunk: originalFieldFromAll ? originalFieldFromAll.htmlChunk : null
+                                            htmlChunk: chunk
                                         };
                                     }
                                     
-                                    await this.processSingleField(field, value);
+                                    await this.processSingleField(field, value, userProfile);
                                 }
                             }
                         } else {
@@ -139,7 +152,10 @@
                     }
                     
                     if (this.isStopped) break;
-                    page_has_changed = await this.navigateToNextPage();
+                    
+                    // page_has_changed = await this.navigateToNextPage();
+                    console.log("单页填充模式：已完成当前页面，程序将终止。");
+                    page_has_changed = false; // 在填充完一页后终止
                 }
                 
                 if (this.isStopped) {
@@ -253,7 +269,7 @@
         }
 
         async processHtmlChunkWithLLM(html, chunkIndex) {
-            const prompt = `你是一个HTML解析专家。严格分析以下HTML片段，并仅返回此片段中存在的表单字段。不要推断或包含HTML片段之外的任何字段。输出一个纯JSON数组，其中每个对象代表一个字段，包含'question', 'action', 'selector', 和 'options'。\n指南：\n- 'question': 必须是与字段关联的人类可读的标签文本。\n- 'action': 对文本输入使用'fill'，对复选框/单选按钮使用'click'，对下拉菜单使用'select_by_text'。\n- 'selector': 字段的唯一CSS选择器。\n- 'options': 对于下拉菜单或单选组，提供选项的可见文本列表。\n\nHTML片段如下：\n\n\`\`\`html\n${html}\n\`\`\``;
+            const prompt = `你是一个HTML解析专家。严格分析以下HTML片段，并仅返回此片段中存在的表单字段。输出一个纯JSON数组，其中每个对象代表一个字段。\n\n分块处理: 正在处理多个块中的第 ${chunkIndex} 块。\n\n每个字段对象必须包含:\n- 'question': 字段的文本标签或相关问题。\n- 'action': 从 'fill', 'click', 'select_by_text' 中选择一个操作。\n- 'selector': 用于与元素交互的、唯一的、有效的CSS选择器。\n- 'options': (仅当 action 为 'select_by_text' 或 'click' 时需要) 一个包含可用选项文本的数组。\n\n指南:\n1.  **文本输入 (Text, Date, Textarea)**: 使用 'action': 'fill'。'selector' 应直接指向 <input> 或 <textarea> 元素。\n2.  **单选/复选框 (Radio/Checkbox)**: 为 **每一个** 可点击的选项创建一个独立的对象。使用 'action': 'click'。'selector' 必须指向该选项的 <input> 元素。'question' 应该是这组选项共同的问题。'options' 应该是一个只包含这个特定选项标签文本的数组 (例如: ['是'] 或 ['篮球'])。\n3.  **下拉菜单 (Select)**: 使用 'action': 'select_by_text'。'selector' 应指向 <select> 元素或触发下拉菜单的点击目标。'options' 必须是所有可见选项文本的完整列表。\n4.  **严格性**: 只分析提供的HTML。不要猜测或包含HTML之外的字段。确保输出是纯粹的、格式正确的JSON数组，不包含任何解释性文本。\n\nHTML片段如下:\n\`\`\`html\n${html}\n\`\`\`\n`;
 
             try {
                 console.log(`[LLM模式] Chunk #${chunkIndex} HTML to be processed (first 500 chars):\n`, html.substring(0, 500) + '...');
@@ -414,13 +430,21 @@
             }
         }
 
-        async processSingleField(field, value) {
+        async processSingleField(field, value, profile) {
             const { selector, action, question } = field;
             const MAX_RETRIES = 2; 
             let lastError = null;
 
             for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-                const element = document.querySelector(selector);
+                let element;
+                try {
+                    element = document.querySelector(selector);
+                } catch (e) {
+                    lastError = e;
+                    console.warn(`Attempt ${attempt}/${MAX_RETRIES}: Invalid selector: \"${selector}\". Error: ${e.message}`);
+                    // 如果选择器无效，重试也无济于事，直接退出循环
+                    break; 
+                }
 
                 if (!element) {
                     lastError = new Error(`Element not found with selector: ${selector}`);
@@ -460,11 +484,18 @@
             
             console.error(`常规尝试最终失败: Action '${action}' on '${question}'. 正在调用 LLM 进行纠错...`);
             
-            const correctedField = await this.correctFieldWithLLM(field, lastError);
+            const correctedField = await this.correctFieldWithLLM(field, lastError, profile);
             
             if (correctedField) {
                 console.log("[纠错模式] 获得修正建议，正在最后一次尝试:", correctedField);
-                const element = document.querySelector(correctedField.selector);
+                let element;
+                try {
+                    element = document.querySelector(correctedField.selector);
+                } catch (e) {
+                    console.error(`[纠错模式] 修正后的选择器 '${correctedField.selector}' 是无效的. Error: ${e.message}`);
+                    element = null;
+                }
+
                 if (element) {
                     try {
                         element.style.border = '2px solid blue';
@@ -483,7 +514,7 @@
                         console.error(`最终失败 (纠错后): Action '${correctedField.action}' on '${correctedField.question}'. Error:`, e);
                     }
                 } else {
-                    console.error(`[纠错模式] 修正后的选择器 '${correctedField.selector}' 仍然找不到元素。`);
+                    console.error(`[纠错模式] 修正后的选择器 '${correctedField.selector}' 找不到元素或无效。`);
                 }
             } else {
                 console.error(`[纠错模式] LLM 未能提供修正建议。彻底放弃字段 '${question}'。`);
@@ -525,13 +556,33 @@
             }
         }
 
-        async correctFieldWithLLM(originalField, error) {
+        getSurroundingHtml(element, radius = 2000) {
+            let parent = element.parentElement;
+            if (!parent) return element.outerHTML;
+
+            // Go up to find a parent that contains a decent chunk of HTML
+            while (parent && parent.outerHTML.length < radius && parent.tagName !== 'BODY') {
+                element = parent;
+                parent = parent.parentElement;
+            }
+            
+            return element.outerHTML;
+        }
+
+        getVisibleHtml() {
+            // Clones the document body, removes script/style tags, and returns the outer HTML.
+            const bodyClone = document.body.cloneNode(true);
+            bodyClone.querySelectorAll('script, style, noscript').forEach(el => el.remove());
+            return bodyClone.outerHTML;
+        }
+
+        async correctFieldWithLLM(originalField, error, profile) {
             console.log("[纠错模式] 准备向 LLM 请求修正方案...");
             let htmlContext = '';
 
             // 1. Try to use the HTML chunk associated with the field during extraction
-            if (originalField.chunk) {
-                htmlContext = originalField.chunk;
+            if (originalField.htmlChunk) {
+                htmlContext = originalField.htmlChunk;
                 console.log('[纠错模式] 使用字段关联的HTML块作为上下文。');
             } 
             // 2. If no chunk, try to find the relevant chunk using the question text
@@ -554,7 +605,7 @@
                         throw new Error('Element not found via selector');
                     }
                 } catch (e) {
-                    console.log(`[纠错模式] 无法通过选择器 "${originalField.selector}" 定位元素，且未找到关联的HTML块。将发送整个 body HTML 作为上下文。`);
+                    console.log(`[纠错模式] 无法通过选择器 \"${originalField.selector}\" 定位元素，且未找到关联的HTML块。将发送整个 body HTML 作为上下文。`);
                     htmlContext = this.getVisibleHtml(); // Use the cleaned full HTML
                 }
             }
@@ -571,9 +622,9 @@
                 const correctionPrompt = `
                     你是一个Web自动化专家。一个自动化脚本在网页上填充字段时失败了。
                     失败的字段信息:
-                    - 问题: "${originalField.question}"
-                    - 尝试的CSS选择器: "${originalField.selector}"
-                    - 字段类型: "${originalField.type}"
+                    - 问题: \"${originalField.question}\"
+                    - 尝试的CSS选择器: \"${originalField.selector}\"
+                    - 字段类型: \"${originalField.action}\\"
 
                     这是该字段相关的HTML上下文:
                     \`\`\`html
@@ -582,7 +633,7 @@
 
                     用户个人资料如下:
                     \`\`\`json
-                    ${JSON.stringify(profile)}
+                    ${profile}
                     \`\`\`
 
                     请分析HTML并提供一个修正方案。你需要返回一个JSON对象，其中包含一个新的、更健壮的CSS选择器。
@@ -596,197 +647,22 @@
                     }
                 `;
 
-                const response = await callLlmApi({
-                    model: 'gpt-4-turbo', // Use a powerful model for correction
-                    messages: [
-                        { role: 'system', content: 'You are an expert web automation troubleshooter.' },
-                        { role: 'user', content: correctionPrompt }
-                    ],
-                    response_format: { type: "json_object" }
-                });
+                const correction = await askLLM(correctionPrompt, 'gpt-4-turbo');
 
-                const correction = JSON.parse(response.choices[0].message.content.trim());
                 console.log("[纠错模式] LLM返回的修正方案:", correction);
 
-                if (correction.newSelector) {
-                    // Create a new field object with the corrected selector to try again
-                    const correctedField = { ...originalField, selector: correction.newSelector };
-                    // Call processSingleField again, but with only 1 retry and no further correction loop
-                    updateStatus(`收到修正方案，正在重试填充 "${originalField.question}"...`);
-                    // Directly try to fill, without the retry loop of processSingleField
-                    return await tryFillingWithCorrection(correctedField, profile);
+                if (correction && correction.newSelector) {
+                    return { ...originalField, selector: correction.newSelector };
                 } else {
                     console.error("[纠错模式] LLM未能提供有效的修正选择器。");
-                    return false;
+                    return null;
                 }
             } catch (error) {
                 console.error("[纠错模式] 调用LLM进行纠错时发生严重错误:", error);
-                return false;
+                return null;
             }
         }
     }
-
-    // =================================================================================================
-    // 2. HTML 解析和分块 (HTML Parsing and Chunking)
-    // =================================================================================================
-
-    /**
-     * Splits the HTML content by semantic blocks like <form> or large containers.
-     * Falls back to character-based splitting if no clear structure is found.
-     * @returns {string[]} An array of HTML chunks.
-     */
-    function getSmartHtmlChunks() {
-        console.log("使用智能分块逻辑分割HTML...");
-        const body = document.body;
-        if (!body) return [];
-
-        // Strategy 1: Split by <form> elements
-        const forms = Array.from(body.querySelectorAll('form'));
-        if (forms.length > 0) {
-            console.log(`发现 ${forms.length} 个 <form> 元素，将作为HTML块。`);
-            return forms.map(form => form.outerHTML);
-        }
-
-        // Strategy 2: Split by large container elements with multiple form controls
-        const containers = [];
-        const allPotentialContainers = body.querySelectorAll('div, section, article');
-        allPotentialContainers.forEach(container => {
-            // Ignore small containers or those nested deep inside another chosen container
-            if (container.innerHTML.length < 500 || containers.some(c => c.contains(container))) {
-                return;
-            }
-            const inputs = container.querySelectorAll('input, textarea, select, button');
-            if (inputs.length > 2) { // Heuristic: a container with more than 2 inputs is a "group"
-                containers.push(container);
-            }
-        });
-
-        if (containers.length > 0) {
-            console.log(`未找到 <form>，但发现 ${containers.length} 个包含表单控件的容器，将作为HTML块。`);
-            return containers.map(container => container.outerHTML);
-        }
-
-        // Fallback Strategy: Split by character limit
-        console.log("未找到 <form> 或合适的容器，将退回至按字符数分割。");
-        const fullHtml = body.outerHTML;
-        const chunkSize = 15000;
-        const chunks = [];
-        for (let i = 0; i < fullHtml.length; i += chunkSize) {
-            chunks.push(fullHtml.substring(i, i + chunkSize));
-        }
-        console.log(`HTML已按 ${chunkSize} 字符分割成 ${chunks.length} 个块。`);
-        return chunks;
-    }
-
-
-    /**
-     * Extracts form fields from the provided HTML chunks.
-     * @param {string[]} htmlChunks - An array of HTML strings to parse.
-     * @returns {Promise<object[]>} A promise that resolves to an array of field objects.
-     */
-    async function extractFieldsFromHtml(htmlChunks) {
-        updateStatus(`正在解析 ${htmlChunks.length} 个HTML块以提取字段...`);
-
-        const promises = htmlChunks.map(async (chunk, index) => {
-            try {
-                const response = await callLlmApi({
-                    model: 'gpt-4o-mini', // Use a faster model for parsing
-                    messages: [
-                        {
-                            role: 'system',
-                            content: `你是一个HTML解析助手。你的任务是从给定的HTML代码段中识别并提取出所有的表单字段(input, textarea, select, radio, checkbox)以及提交按钮。
-                            你需要为每个字段提取以下信息：
-                            1.  "question": 与字段关联的标签或问题文本。如果找不到，就根据字段的 'name' 或 'id' 属性生成一个描述性问题。
-                            2.  "type": 字段的类型 (例如, 'text', 'password', 'radio', 'checkbox', 'select-one', 'textarea', 'submit')。
-                            3.  "selector": 一个精确的CSS选择器，可以唯一地定位到该HTML元素。优先使用ID，其次是name和value的组合，确保选择器的鲁棒性。对于单选和复选框，选择器必须包含value属性。
-                            4.  "options" (可选): 对于 'select', 'radio', 或 'checkbox' 类型的字段，提供所有可选值的列表。
-                            5.  "value": 字段的当前值。
-
-                            请以JSON格式返回一个包含所有提取字段的数组。每个字段都是一个对象。确保JSON格式正确无误。
-                            例如:
-                            [
-                              { "question": "您的姓名", "type": "text", "selector": "#username", "value": "" },
-                              { "question": "性别", "type": "radio", "selector": "input[name='gender'][value='male']", "options": ["male", "female"] }
-                            ]
-                            `
-                        },
-                        { role: 'user', content: chunk }
-                    ]
-                });
-                const resultText = response.choices[0].message.content.trim();
-                const jsonResult = JSON.parse(resultText);
-                // Add the source html chunk to each field for later reference
-                jsonResult.forEach(field => {
-                    field.htmlChunk = chunk;
-                    field.chunkIndex = index;
-                });
-                return jsonResult;
-            } catch (error) {
-                console.error(`解析HTML块 ${index + 1} 时出错:`, error);
-                updateStatus(`解析HTML块 ${index + 1} 失败。`);
-                return []; // Return empty array on error
-            }
-        });
-
-        const results = await Promise.all(promises);
-        return results.flat(); // Flatten the array of arrays
-    }
-
-
-    // =================================================================================================
-    // 4. 主流程控制 (Main Flow Control)
-    // =================================================================================================
-
-    async function start(profile) {
-        if (stopFilling) {
-            console.log("填充过程已被用户停止。");
-            updateStatus("已停止。");
-            return;
-        }
-
-        console.log("开始表单填充流程...", profile);
-        updateStatus("正在初始化...");
-
-        // 1. Get HTML chunks
-        allHtmlChunks = getSmartHtmlChunks();
-        if (allHtmlChunks.length === 0) {
-            updateStatus("错误：无法获取页面HTML内容。");
-            console.error("无法获取HTML块，终止流程。");
-            return;
-        }
-
-        // 2. Extract fields from HTML
-        fields = await extractFieldsFromHtml(allHtmlChunks);
-        console.log("提取到的所有字段:", fields);
-
-        // 3. Filter out fields that are already successfully filled
-        const fieldsToFill = fields.filter(field => !this.successfully_filled_fields.has(field.selector));
-        this.totalFieldsToFill = fieldsToFill.length;
-        console.log(`待填充字段总数: ${this.totalFieldsToFill}`);
-
-        if (fieldsToFill.length === 0) {
-            updateStatus("所有字段均已填充过。");
-            alert("所有字段均已填充过。");
-            return;
-        }
-
-        // 4. Start filling process
-        updateStatus(`即将开始填充 ${fieldsToFill.length} 个字段...`);
-        for (const field of fieldsToFill) {
-            if (this.isStopped) break;
-            await this.processSingleField(field, profile);
-        }
-
-        if (this.isStopped) {
-            alert("表单填充已由用户手动中断。");
-        } else {
-            alert("表单填充完成！");
-        }
-    }
-
-    // =================================================================================================
-    // 6. UI 和消息监听 (UI and Message Listening)
-    // =================================================================================================
 
     function updateStatus(message) {
         const statusElement = document.getElementById('form-filler-status');
