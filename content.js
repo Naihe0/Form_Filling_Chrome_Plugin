@@ -752,21 +752,23 @@
                         const start = Math.max(0, idx - 1000);
                         const end = Math.min(bodyHtml.length, idx + originalField.question.length + 1000);
                         htmlContext = bodyHtml.substring(start, end);
-                        console.log('[纠错模式] 通过问题文本在body中定位到上下文，并截取问题文本上下500字符。');
+                        console.log('[纠错模式] 通过问题文本在body中定位到上下文，并截取问题文本上下1000字符。');
                     }
                 }
 
-                try {
-                    const element = document.querySelector(originalField.selector);
-                    if (element) {
-                        htmlContext = this.getSurroundingHtml(element);
-                        console.log('[纠错模式] 使用选择器定位元素并获取其周边HTML作为上下文。');
-                    } else {
-                        throw new Error('Element not found via selector');
+                if (!htmlContext) {
+                    try {
+                        const element = document.querySelector(originalField.selector);
+                        if (element) {
+                            htmlContext = this.getSurroundingHtml(element);
+                            console.log('[纠错模式] 使用选择器定位元素并获取其周边HTML作为上下文。');
+                        } else {
+                            throw new Error('Element not found via selector');
+                        }
+                    } catch (e) {
+                        console.log(`[纠错模式] 无法通过选择器 \"${originalField.selector}\" 定位元素，且未找到关联的HTML块。将发送整个 body HTML 作为上下文。`);
+                        htmlContext = this.getVisibleHtml(); // Use the cleaned full HTML
                     }
-                } catch (e) {
-                    console.log(`[纠错模式] 无法通过选择器 \"${originalField.selector}\" 定位元素，且未找到关联的HTML块。将发送整个 body HTML 作为上下文。`);
-                    htmlContext = this.getVisibleHtml(); // Use the cleaned full HTML
                 }
             }
 
