@@ -200,12 +200,13 @@
 
         async extractFieldsWithLLM() {
             console.log("[LLM模式] 开始使用 LLM 提取字段...");
-            const formElement = document.querySelector('form') || document.body;
+            // const formElement = document.querySelector('form') || document.body;
+            const formElement = document.body;
             
             // --- New intelligent chunking logic ---
             const formClone = formElement.cloneNode(true);
             // Remove irrelevant tags to reduce noise and token count
-            formClone.querySelectorAll('script, style, noscript, svg, footer, header, nav, path, meta, link').forEach(el => el.remove());
+            formClone.querySelectorAll('script, style, noscript, svg, footer, nav').forEach(el => el.remove());
 
             const MAX_CHUNK_SIZE = 15000; // Keep the size limit
             const chunks = [];
