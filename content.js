@@ -695,33 +695,47 @@
 
             // 1. Try to use the HTML chunk associated with the field during extraction
             console.log(originalField);
-            if (originalField.htmlChunk) {
-                let chunk = originalField.htmlChunk;
-                if (originalField.question && chunk.includes(originalField.question)) {
-                    const idx = chunk.indexOf(originalField.question);
-                    const start = Math.max(0, idx - 500);
-                    const end = Math.min(chunk.length, idx + originalField.question.length + 500);
-                    htmlContext = chunk.substring(start, end);
-                    console.log('[纠错模式] 使用字段关联的HTML块，并截取问题文本上下500字符作为上下文。');
-                } else {
-                    htmlContext = chunk;
-                    console.log('[纠错模式] 使用字段关联的HTML块作为上下文（未截取）。');
-                }
-            } 
-            // 2. If no chunk, try to find the relevant chunk using the question text
-            else if (originalField.question) {
-                const foundChunk = this.htmlChunks.find(chunk => chunk.includes(originalField.question));
-                if (foundChunk) {
-                    const idx = foundChunk.indexOf(originalField.question);
-                    const start = Math.max(0, idx - 500);
-                    const end = Math.min(foundChunk.length, idx + originalField.question.length + 500);
-                    htmlContext = foundChunk.substring(start, end);
-                    console.log('[纠错模式] 通过问题文本定位到相关HTML块，并截取问题文本上下500字符作为上下文。');
-                }
-            }
+            // if (originalField.htmlChunk) {
+            //     let chunk = originalField.htmlChunk;
+            //     if (originalField.question && chunk.includes(originalField.question)) {
+            //         const idx = chunk.indexOf(originalField.question);
+            //         const start = Math.max(0, idx - 500);
+            //         const end = Math.min(chunk.length, idx + originalField.question.length + 500);
+            //         htmlContext = chunk.substring(start, end);
+            //         console.log('[纠错模式] 使用字段关联的HTML块，并截取问题文本上下500字符作为上下文。');
+            //     } else {
+            //         htmlContext = chunk;
+            //         console.log('[纠错模式] 使用字段关联的HTML块作为上下文（未截取）。');
+            //     }
+            // } 
+            // // 2. If no chunk, try to find the relevant chunk using the question text
+            // else if (originalField.question) {
+            //     const foundChunk = this.htmlChunks.find(chunk => chunk.includes(originalField.question));
+            //     if (foundChunk) {
+            //         const idx = foundChunk.indexOf(originalField.question);
+            //         const start = Math.max(0, idx - 500);
+            //         const end = Math.min(foundChunk.length, idx + originalField.question.length + 500);
+            //         htmlContext = foundChunk.substring(start, end);
+            //         console.log('[纠错模式] 通过问题文本定位到相关HTML块，并截取问题文本上下500字符作为上下文。');
+            //     }
+            // }
 
             // 3. Fallback if context is still not found
-            if (!htmlContext) {
+            if (true) {
+                // 尝试用问题文本在整个body中定位上下文
+                console.log('[纠错模式] 使用关联的HTML块或问题文本定位上下文。');
+                if (originalField.question) {
+                    const bodyHtml = document.body.outerHTML;
+                    const idx = bodyHtml.indexOf(originalField.question);
+                    console.log(`问题文本 "${originalField.question}" 在body中索引位置: ${idx}`);
+                    if (idx !== -1) {
+                        const start = Math.max(0, idx - 1000);
+                        const end = Math.min(bodyHtml.length, idx + originalField.question.length + 1000);
+                        htmlContext = bodyHtml.substring(start, end);
+                        console.log('[纠错模式] 通过问题文本在body中定位到上下文，并截取问题文本上下500字符。');
+                    }
+                }
+
                 try {
                     const element = document.querySelector(originalField.selector);
                     if (element) {
@@ -746,7 +760,7 @@
 
             try {
                 const correctionPrompt = `
-                    你是一个Web自动化专家。一个自动化脚本在网页上填充字段时失败了。
+                    你是一个Web自动化专家。一个自动化脚本在网页上填充字段时可能失败了。
                     失败的字段信息:
                     - 问题: \"${originalField.question}\"
                     - 尝试的CSS选择器: \"${originalField.selector}\"
