@@ -2,7 +2,7 @@
     console.log("智能表单填充助手：内容脚本已加载。");
 
     // --- Helper function to communicate with background script ---
-    async function askLLM(prompt, model = 'gpt-4o') {
+    async function askLLM(prompt, model = 'gpt-4.1') {
         const { apiKey } = await chrome.storage.local.get('apiKey');
         if (!apiKey) {
             alert("请先在插件弹窗中设置您的 OpenAI API Key。");
@@ -107,43 +107,17 @@
                         );
 
                         if (fields_to_fill.length > 0) {
-                            const filled_values = await this.generateFillValues(fields_to_fill, userProfile);
-                            
+                            const fields_with_values = await this.addValuesToFields(fields_to_fill, userProfile);
+
                             if (this.isStopped) break;
 
-                            for (const selector in filled_values) {
+                            for (const field of fields_with_values) {
                                 if (this.isStopped) break;
-                                if (Object.prototype.hasOwnProperty.call(filled_values, selector)) {
-                                    const value = filled_values[selector];
-                                    if (value === undefined || value === null) continue;
-
-                                    let field = fields_to_fill.find(f => f.selector === selector);
-
-                                    if (!field) {
-                                        console.log(`[填充警告] LLM返回的选择器 \"${selector}\" 在待填充字段列表中未找到。将动态创建一个字段进行处理。`);
-                                        
-                                        // Attempt to find the original field from all extracted fields to get the HTML chunk
-                                        const originalFieldFromAll = this.allFields.find(f => f.selector === selector);
-                                        let chunk = originalFieldFromAll ? originalFieldFromAll.htmlChunk : null;
-
-                                        // If chunk is still not found, try to find the most relevant chunk
-                                        if (!chunk) {
-                                            const tempElement = document.querySelector(selector);
-                                            if (tempElement) {
-                                                const tempHtml = tempElement.outerHTML;
-                                                chunk = this.htmlChunks.find(c => c.includes(tempHtml)) || null;
-                                            }
-                                        }
-
-                                        field = {
-                                            selector: selector,
-                                            action: (typeof value === 'boolean' && value === true) ? 'click' : 'fill',
-                                            question: `(Inferred field for selector: ${selector})`,
-                                            htmlChunk: chunk
-                                        };
-                                    }
-                                    
-                                    await this.processSingleField(field, value, userProfile);
+                                
+                                // Check if the LLM provided a value for this field
+                                if (field.value !== undefined && field.value !== null) {
+                                    // The processSingleField function expects the value as a separate argument.
+                                    await this.processSingleField(field, field.value, userProfile);
                                 }
                             }
                         } else {
@@ -227,15 +201,45 @@
         async extractFieldsWithLLM() {
             console.log("[LLM模式] 开始使用 LLM 提取字段...");
             const formElement = document.querySelector('form') || document.body;
-            const formHtml = formElement.outerHTML;
+            
+            // --- New intelligent chunking logic ---
+            const formClone = formElement.cloneNode(true);
+            // Remove irrelevant tags to reduce noise and token count
+            formClone.querySelectorAll('script, style, noscript, svg, footer, header, nav, path, meta, link').forEach(el => el.remove());
 
-            const MAX_CHUNK_SIZE = 15000;
+            const MAX_CHUNK_SIZE = 15000; // Keep the size limit
             const chunks = [];
-            for (let i = 0; i < formHtml.length; i += MAX_CHUNK_SIZE) {
-                chunks.push(formHtml.substring(i, i + MAX_CHUNK_SIZE));
+            let currentChunkHtml = '';
+
+            // Find the most relevant container of fields, often a form is wrapped in a single div
+            let parentContainer = formClone;
+            if (formClone.children.length === 1 && formClone.children[0].children.length > 1) {
+                 parentContainer = formClone.children[0];
             }
 
-            console.log(`[LLM模式] HTML 被分为 ${chunks.length} 个块进行处理。`);
+            const elementsToChunk = Array.from(parentContainer.children);
+
+            for (const element of elementsToChunk) {
+                const elementHtml = element.outerHTML;
+                if (!elementHtml) continue;
+
+                // If adding the next element exceeds the chunk size, push the current chunk.
+                if (currentChunkHtml.length + elementHtml.length > MAX_CHUNK_SIZE && currentChunkHtml.length > 0) {
+                    chunks.push(currentChunkHtml);
+                    currentChunkHtml = '';
+                }
+
+                // Add the element's HTML to the current chunk.
+                currentChunkHtml += elementHtml + '\n';
+            }
+
+            // Add the last remaining chunk if it's not empty.
+            if (currentChunkHtml.length > 0) {
+                chunks.push(currentChunkHtml);
+            }
+            // --- End of new chunking logic ---
+
+            console.log(`[LLM模式] HTML 被智能地分为 ${chunks.length} 个块进行处理。`);
 
             const allFields = [];
             for (const [index, chunk] of chunks.entries()) {
@@ -246,25 +250,32 @@
                 console.log(`[LLM模式] 正在处理块 ${index + 1}/${chunks.length}...`);
                 const result = await this.processHtmlChunkWithLLM(chunk, index + 1);
                 if (result && Array.isArray(result)) {
+                    // Associate the chunk with the fields extracted from it.
                     const fieldsWithChunk = result.map(field => ({ ...field, htmlChunk: chunk }));
                     allFields.push(...fieldsWithChunk);
                 }
-                await new Promise(r => setTimeout(r, 500));
+                await new Promise(r => setTimeout(r, 500)); // Rate limiting
             }
 
             console.log(`[LLM模式] 所有块处理完毕，去重前共 ${allFields.length} 个字段。`);
 
-            // Deduplicate fields based on selector
+            // Deduplicate fields based on a combination of question and selector to avoid removing fields with generic selectors but different labels.
             const uniqueFields = [];
-            const seenSelectors = new Set();
+            const seenFields = new Set();
             for (const field of allFields) {
-                if (field.selector && !seenSelectors.has(field.selector)) {
-                    uniqueFields.push(field);
-                    seenSelectors.add(field.selector);
+                if (field.selector) {
+                    // Create a unique key from the question and selector.
+                    const fieldKey = `${field.question}|${field.selector}`;
+                    if (!seenFields.has(fieldKey)) {
+                        uniqueFields.push(field);
+                        seenFields.add(fieldKey);
+                    }
                 }
             }
             
             console.log(`[LLM模式] 总共提取到 ${uniqueFields.length} 个独立字段。`);
+            this.allFields = uniqueFields; // Store all fields for later reference
+            this.htmlChunks = chunks; // Store all chunks for correction context
             return uniqueFields;
         }
 
@@ -328,6 +339,55 @@
             return path.join(" > ");
         }
 
+        getLabelForElement(element) {
+            let labelText = '';
+            // a. 直接的 <label for="...">
+            if (element.id) {
+                const labelFor = document.querySelector(`label[for='${element.id}']`);
+                if (labelFor) labelText = labelFor.innerText;
+            }
+            // b. 包裹型 <label>
+            if (!labelText) {
+                const parentLabel = element.closest('label');
+                if (parentLabel) labelText = parentLabel.innerText;
+            }
+            // c. aria-label 或 aria-labelledby
+            if (!labelText) {
+                labelText = element.getAttribute('aria-label');
+            }
+            if (!labelText) {
+                const labelledby = element.getAttribute('aria-labelledby');
+                if (labelledby) {
+                    const labelElement = document.getElementById(labelledby);
+                    if (labelElement) labelText = labelElement.innerText;
+                }
+            }
+            // d. 作为备选，寻找最近的父级元素的文本
+            if (!labelText) {
+                let parent = element.parentElement;
+                let tries = 0;
+                while(parent && tries < 3) {
+                    const directText = Array.from(parent.childNodes)
+                        .filter(node => node.nodeType === Node.TEXT_NODE && (node.textContent || '').trim().length > 0)
+                        .map(node => (node.textContent || '').trim())
+                        .join(' ');
+
+                    if (directText) {
+                        labelText = directText;
+                        break;
+                    }
+                    parent = parent.parentElement;
+                    tries++;
+                }
+            }
+             // e. 使用 placeholder 作为最后的备选
+            if (!labelText && element.placeholder) {
+                labelText = element.placeholder;
+            }
+
+            return (labelText || '').trim().replace(/\s+/g, ' ');
+        }
+
         async extractFieldsDeterministically() {
             console.log("[确定性模式] 开始使用确定性方法提取字段...");
             const formElements = Array.from(document.querySelectorAll('input, textarea, select'));
@@ -342,56 +402,10 @@
                 const selector = this.getUniqueSelector(element);
                 if (!selector) continue;
 
-                // 1. 寻找标签
-                let labelText = '';
-                // a. 直接的 <label for="...">
-                if (element.id) {
-                    const labelFor = document.querySelector(`label[for='${element.id}']`);
-                    if (labelFor) labelText = labelFor.innerText;
-                }
-                // b. 包裹型 <label>
-                if (!labelText) {
-                    const parentLabel = element.closest('label');
-                    if (parentLabel) labelText = parentLabel.innerText;
-                }
-                // c. aria-label 或 aria-labelledby
-                if (!labelText) {
-                    labelText = element.getAttribute('aria-label');
-                }
-                if (!labelText) {
-                    const labelledby = element.getAttribute('aria-labelledby');
-                    if (labelledby) {
-                        const labelElement = document.getElementById(labelledby);
-                        if (labelElement) labelText = labelElement.innerText;
-                    }
-                }
-                // d. 作为备选，寻找最近的父级元素的文本
-                if (!labelText) {
-                    let parent = element.parentElement;
-                    let tries = 0;
-                    while(parent && tries < 3) {
-                        // 使用 .childNodes 来获取包括文本节点在内的所有子节点
-                        const directText = Array.from(parent.childNodes)
-                            .filter(node => node.nodeType === Node.TEXT_NODE && (node.textContent || '').trim().length > 0)
-                            .map(node => (node.textContent || '').trim())
-                            .join(' ');
-
-                        if (directText) {
-                            labelText = directText;
-                            break;
-                        }
-                        parent = parent.parentElement;
-                        tries++;
-                    }
-                }
-                 // e. 使用 placeholder 作为最后的备选
-                if (!labelText && element.placeholder) {
-                    labelText = element.placeholder;
-                }
-
+                const labelText = this.getLabelForElement(element);
 
                 const field = {
-                    question: (labelText || '').trim().replace(/\s+/g, ' ') || element.name || '未找到标签',
+                    question: labelText || element.name || '未找到标签',
                     action: '',
                     selector: selector,
                     options: []
@@ -417,23 +431,118 @@
             return allFields;
         }
 
-        async generateFillValues(fields, profile) {
-            const prompt = `你是智能表单填充助手。根据用户资料，为给定的表单字段生成需要填写的确切值。请以纯 JSON 对象的格式返回结果，键是字段的 CSS selector，值是待填充的内容。\n\n--- 用户资料 ---\n${profile}\n\n--- 表单字段 (JSON 格式) ---\n${JSON.stringify(fields, null, 2)}\n\n--- 填充规则 ---\n1. 仔细匹配 'question' 和 'action'。\n2. 对于 'select_by_text'，从 'options' 列表中选择最匹配的项。\n3. 对于值为布尔值true的'click'操作，表示应选中该单选按钮或复选框。\n4. 如果资料中无匹配信息，不要包含该字段。\n5. 只输出 JSON。\n\n--- 输出 (纯 JSON) ---`;
+        async addValuesToFields(fields, profile) {
+            // Create a version of the fields array without htmlChunk and with a temporary ID
+            const fieldsForPrompt = fields.map(({ htmlChunk, ...rest }, index) => ({
+                ...rest,
+                _id: index // Add a temporary ID
+            }));
+
+            console.log("发送给LLM用于添加填充值的字段:", JSON.stringify(fieldsForPrompt, null, 2));
+            const prompt = `你是一个智能表单填充与修正助手。根据提供的用户资料，分析下面的JSON字段数组。你的任务是：\n1.  为每个可以填充的字段添加一个 'value' 键。\n2.  (可选) 如果发现字段的 'selector' 或 'options' 不正确或不完整，请修正它们。\n3.  **重要**: 你必须在返回的每个对象中保留原始的 '_id' 字段。\n\n--- 用户资料 ---\n${profile}\n\n--- 表单字段 (JSON数组) ---\n${JSON.stringify(fieldsForPrompt, null, 2)}\n\n--- 填充与修正规则 ---\n-   **分析**: 仔细分析每个字段对象的 'question', 'action', 'selector', 和 'options'。\n-   **填充 'value'**: 根据用户资料确定最匹配的填充值。\n    -   对于 'click' 操作，如果应该点击，'value' 设为布尔值 \\\`true\\\`。\n    -   对于 'select_by_text' 操作，'value' 必须是 'options' 数组中完全匹配的字符串。\n    -   如果找不到对应信息，则 **不要** 添加 'value' 键。\n-   **修正**: 如果你认为 'selector' 不够健壮或 'options' 列表不完整，你可以更新它们。\n-   **输出**: 你 **必须** 返回完整的、被修改后的JSON数组。数组中的对象必须包含原始的 '_id'。输出必须是纯粹的JSON数组。\n\n--- 输出 (修改后的JSON数组) ---`;
             
             try {
-                const values = await askLLM(prompt, 'gpt-4.1-mini');
-                console.log("LLM 生成的填充值:", values);
-                return values;
+                let updatedFieldsFromLLM = await askLLM(prompt, 'gpt-4.1-mini');
+                console.log("LLM 返回的带填充值的字段:", updatedFieldsFromLLM);
+                
+                // Handle cases where LLM wraps the array in an object (e.g., { "result": [...] })
+                if (typeof updatedFieldsFromLLM === 'object' && updatedFieldsFromLLM !== null && !Array.isArray(updatedFieldsFromLLM)) {
+                    const arrayKey = Object.keys(updatedFieldsFromLLM).find(key => Array.isArray(updatedFieldsFromLLM[key]));
+                    if (arrayKey) {
+                        console.log(`Found array in key '${arrayKey}', unwrapping it.`);
+                        updatedFieldsFromLLM = updatedFieldsFromLLM[arrayKey];
+                    }
+                }
+
+                if (!Array.isArray(updatedFieldsFromLLM)) {
+                    console.error("LLM did not return a valid array after attempting to unwrap.", updatedFieldsFromLLM);
+                    return fields; // return original fields to avoid crash
+                }
+
+                // Create a map from the LLM response using the _id
+                const updatedFieldsMap = new Map();
+                updatedFieldsFromLLM.forEach(field => {
+                    if (field._id !== undefined) {
+                        updatedFieldsMap.set(field._id, field);
+                    }
+                });
+
+                // Merge the updates back into the original fields array
+                const finalFields = fields.map((originalField, index) => {
+                    const updatedField = updatedFieldsMap.get(index);
+                    if (updatedField) {
+                        // The LLM returns an object without htmlChunk and _id is temporary
+                        const { _id, ...restOfUpdatedField } = updatedField;
+                        return {
+                            ...originalField, // Keeps htmlChunk
+                            ...restOfUpdatedField // Overwrites everything else if changed by LLM
+                        };
+                    }
+                    return originalField;
+                });
+
+                return finalFields;
+
             } catch (e) {
-                console.error("生成填充值时出错:", e);
-                return {};
+                console.error("添加填充值时出错:", e);
+                return fields; // return original fields on error
             }
         }
 
         async processSingleField(field, value, profile) {
-            const { selector, action, question } = field;
+            let { selector, action, question } = field;
             const MAX_RETRIES = 2; 
             let lastError = null;
+            let elementToProcess = null;
+
+            // --- Ambiguity Resolution ---
+            try {
+                const potentialElements = Array.from(document.querySelectorAll(selector));
+
+                if (potentialElements.length > 1) {
+                    console.log(`[歧义处理] 选择器 "${selector}" 匹配到 ${potentialElements.length} 个元素。将通过问题文本 "${question}" 进行精确定位。`);
+                    
+                    // Find the first element that matches the question and is not yet filled.
+                    for (const el of potentialElements) {
+                        const uniqueElSelector = this.getUniqueSelector(el);
+                        if (this.successfully_filled_fields.has(uniqueElSelector)) {
+                            continue; // Skip already filled elements
+                        }
+                        const labelText = this.getLabelForElement(el);
+                        // A simple match. Might need to be more fuzzy.
+                        if (labelText && (labelText.includes(question) || question.includes(labelText))) {
+                            console.log(`[歧义处理] 找到匹配问题 "${question}" 的元素 (标签: "${labelText}")。`);
+                            elementToProcess = el;
+                            break;
+                        }
+                    }
+
+                    // If no specific match was found by label, fall back to the first unfilled element.
+                    if (!elementToProcess) {
+                        console.warn(`[歧义处理] 未能通过问题文本找到明确的未填充元素。将选择第一个可用的未填充元素。`);
+                        elementToProcess = potentialElements.find(el => !this.successfully_filled_fields.has(this.getUniqueSelector(el))) || null;
+                    }
+                } else if (potentialElements.length === 1) {
+                    elementToProcess = potentialElements[0];
+                }
+
+                // If we found an element, get its unique selector for processing and tracking
+                if (elementToProcess) {
+                    const uniqueSelector = this.getUniqueSelector(elementToProcess);
+                    // Check if this specific element has already been filled. This can happen if two
+                    // fields from the LLM point to the same element.
+                    if (this.successfully_filled_fields.has(uniqueSelector)) {
+                         console.warn(`[歧义处理] 目标元素 ${uniqueSelector} (问题: "${question}") 已经被填充过，将跳过。`);
+                         return;
+                    }
+                    selector = uniqueSelector; // This is the key change: we now use the unique selector.
+                }
+                
+            } catch (e) {
+                console.warn(`初始选择器 "${selector}" 无效: ${e.message}`);
+                // Let the retry loop handle it.
+            }
+            // --- End of Ambiguity Resolution ---
 
             for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
                 let element;
@@ -442,7 +551,6 @@
                 } catch (e) {
                     lastError = e;
                     console.warn(`Attempt ${attempt}/${MAX_RETRIES}: Invalid selector: \"${selector}\". Error: ${e.message}`);
-                    // 如果选择器无效，重试也无济于事，直接退出循环
                     break; 
                 }
 
@@ -465,6 +573,7 @@
                     console.log(`成功 (尝试 ${attempt}): Action '${action}' on '${question}' with value '${value}'`);
                     element.style.border = '2px solid green';
                     element.style.backgroundColor = '#f0fff0';
+                    // Use the unique selector for tracking
                     this.successfully_filled_fields.add(selector);
                     
                     await new Promise(r => setTimeout(r, 500)); 
@@ -484,7 +593,8 @@
             
             console.error(`常规尝试最终失败: Action '${action}' on '${question}'. 正在调用 LLM 进行纠错...`);
             
-            const correctedField = await this.correctFieldWithLLM(field, lastError, profile);
+            const fieldForCorrection = { ...field, selector: selector };
+            const correctedField = await this.correctFieldWithLLM(fieldForCorrection, lastError, profile);
             
             if (correctedField) {
                 console.log("[纠错模式] 获得修正建议，正在最后一次尝试:", correctedField);
@@ -581,6 +691,7 @@
             let htmlContext = '';
 
             // 1. Try to use the HTML chunk associated with the field during extraction
+            console.log(originalField);
             if (originalField.htmlChunk) {
                 htmlContext = originalField.htmlChunk;
                 console.log('[纠错模式] 使用字段关联的HTML块作为上下文。');
@@ -647,7 +758,7 @@
                     }
                 `;
 
-                const correction = await askLLM(correctionPrompt, 'gpt-4-turbo');
+                const correction = await askLLM(correctionPrompt, 'gpt-4.1');
 
                 console.log("[纠错模式] LLM返回的修正方案:", correction);
 
