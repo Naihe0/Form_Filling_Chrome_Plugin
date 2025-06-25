@@ -502,25 +502,45 @@
                 if (potentialElements.length > 1) {
                     console.log(`[歧义处理] 选择器 "${selector}" 匹配到 ${potentialElements.length} 个元素。将通过问题文本 "${question}" 进行精确定位。`);
                     
-                    // Find the first element that matches the question and is not yet filled.
+                    // Find the best element that matches the question and is not yet filled.
+                    let minDistance = Infinity;
+                    let bestElement = null;
+                    let bestLabel = '';
+                    const normalize = str => (str || '').replace(/\s+/g, '').toLowerCase();
+                    const normQuestion = normalize(question);
+
                     for (const el of potentialElements) {
                         const uniqueElSelector = this.getUniqueSelector(el);
                         if (this.successfully_filled_fields.has(uniqueElSelector)) {
                             continue; // Skip already filled elements
                         }
-                        const labelText = this.getLabelForElement(el);
-                        // A simple match. Might need to be more fuzzy.
-                        if (labelText && (labelText.includes(question) || question.includes(labelText))) {
-                            console.log(`[歧义处理] 找到匹配问题 "${question}" 的元素 (标签: "${labelText}")。`);
-                            elementToProcess = el;
-                            break;
+
+                        // 向上查找最近的父节点，其 textContent 包含 question 文本
+                        let parent = el.parentElement;
+                        let distance = 1;
+                        let found = false;
+                        let foundLabel = '';
+                        while (parent && distance < 10) {
+                            const labelText = parent.textContent ? parent.textContent.trim() : '';
+                            const normLabel = normalize(labelText);
+                            if (normLabel && (normLabel.includes(normQuestion) || normQuestion.includes(normLabel))) {
+                                found = true;
+                                foundLabel = labelText;
+                                break;
+                            }
+                            parent = parent.parentElement;
+                            distance++;
+                        }
+                        if (found && distance < minDistance) {
+                            minDistance = distance;
+                            bestElement = el;
+                            bestLabel = foundLabel;
                         }
                     }
-
-                    // If no specific match was found by label, fall back to the first unfilled element.
-                    if (!elementToProcess) {
-                        console.warn(`[歧义处理] 未能通过问题文本找到明确的未填充元素。将选择第一个可用的未填充元素。`);
-                        elementToProcess = potentialElements.find(el => !this.successfully_filled_fields.has(this.getUniqueSelector(el))) || null;
+                    // 选取距离最近的那个
+                    if (bestElement) {
+                        console.log(`[歧义处理] 选择距离问题文本最近的元素 (父节点内容: "${bestLabel}")。`);
+                        elementToProcess = bestElement;
                     }
                 } else if (potentialElements.length === 1) {
                     elementToProcess = potentialElements[0];
