@@ -643,6 +643,9 @@
                 case 'click':
                     if (value === true) {
                         element.click();
+                        if (!element.classList.contains('checked')) {
+                            throw new Error(`元素 "${element.outerHTML}" 似乎未被正确点击或选中。`);
+                        }
                     }
                     break;
                 case 'select_by_text':
@@ -693,15 +696,27 @@
             // 1. Try to use the HTML chunk associated with the field during extraction
             console.log(originalField);
             if (originalField.htmlChunk) {
-                htmlContext = originalField.htmlChunk;
-                console.log('[纠错模式] 使用字段关联的HTML块作为上下文。');
+                let chunk = originalField.htmlChunk;
+                if (originalField.question && chunk.includes(originalField.question)) {
+                    const idx = chunk.indexOf(originalField.question);
+                    const start = Math.max(0, idx - 500);
+                    const end = Math.min(chunk.length, idx + originalField.question.length + 500);
+                    htmlContext = chunk.substring(start, end);
+                    console.log('[纠错模式] 使用字段关联的HTML块，并截取问题文本上下500字符作为上下文。');
+                } else {
+                    htmlContext = chunk;
+                    console.log('[纠错模式] 使用字段关联的HTML块作为上下文（未截取）。');
+                }
             } 
             // 2. If no chunk, try to find the relevant chunk using the question text
             else if (originalField.question) {
                 const foundChunk = this.htmlChunks.find(chunk => chunk.includes(originalField.question));
                 if (foundChunk) {
-                    htmlContext = foundChunk;
-                    console.log('[纠错模式] 通过问题文本定位到相关HTML块作为上下文。');
+                    const idx = foundChunk.indexOf(originalField.question);
+                    const start = Math.max(0, idx - 500);
+                    const end = Math.min(foundChunk.length, idx + originalField.question.length + 500);
+                    htmlContext = foundChunk.substring(start, end);
+                    console.log('[纠错模式] 通过问题文本定位到相关HTML块，并截取问题文本上下500字符作为上下文。');
                 }
             }
 
