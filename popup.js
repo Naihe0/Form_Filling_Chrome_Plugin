@@ -147,12 +147,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
             if (!tab) throw new Error("找不到活动标签页。");
 
+            // Get user profile and API key to send to content script
+            const { userProfile, apiKey } = await chrome.storage.local.get(['userProfile', 'apiKey']);
+
             await chrome.scripting.executeScript({
                 target: { tabId: tab.id },
                 files: ['content.js']
             });
 
-            chrome.tabs.sendMessage(tab.id, { type: 'start-filling' });
+            // Send the necessary data to start the process
+            chrome.tabs.sendMessage(tab.id, { 
+                type: 'start-filling',
+                payload: { userProfile, apiKey }
+            });
             showStatus('填充指令已发送！');
 
         } catch (e) {
@@ -167,7 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
     stopFillingButton.addEventListener('click', async () => {
         isFilling = false;
         updateUI();
-        showStatus('正在停止填充...');
+        showStatus('正在发送停止指令...');
 
         try {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });

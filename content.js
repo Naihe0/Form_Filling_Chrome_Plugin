@@ -98,7 +98,6 @@
         constructor() {
             this.successfully_filled_fields = new Set();
             this.isStopped = false;
-            this.stopButton = null;
             this.allFields = [];
             this.htmlChunks = []; // Store all HTML chunks
             this.filledFieldsCount = 0;
@@ -106,46 +105,10 @@
             this.statusUI = new StatusUI();
         }
 
-        createStopButton() {
-            const button = document.createElement('button');
-            button.id = 'stop-filling-button';
-            button.textContent = '中断填充';
-            Object.assign(button.style, {
-                position: 'fixed',
-                top: '20px',
-                right: '20px',
-                zIndex: '9999',
-                padding: '10px 20px',
-                backgroundColor: '#dc3545',
-                color: 'white',
-                border: 'none',
-                borderRadius: '5px',
-                cursor: 'pointer',
-                fontSize: '16px',
-                boxShadow: '0 2px 10px rgba(0,0,0,0.3)'
-            });
-            button.onclick = () => {
-                this.isStopped = true;
-                console.log("中断信号已接收。将在当前步骤完成后停止。");
-                button.textContent = '正在中断...';
-                button.disabled = true;
-            };
-            document.body.appendChild(button);
-            this.stopButton = button;
-        }
-
-        removeStopButton() {
-            if (this.stopButton) {
-                this.stopButton.remove();
-                this.stopButton = null;
-            }
-        }
-
-        async start() {
-            this.createStopButton();
+        async start(payload) {
             this.statusUI.update("🚀 开始填充表单...");
             try {
-                const { userProfile, apiKey } = await chrome.storage.local.get(['userProfile', 'apiKey']);
+                const { userProfile, apiKey } = payload;
                 if (!apiKey) {
                     alert("错误：未找到 OpenAI API Key。请在插件弹窗中设置。");
                     this.statusUI.update("❌ 未找到 API Key");
@@ -208,7 +171,7 @@
                 }
                 
                 if (this.isStopped) {
-                    alert("表单填充已由用户手动中断。");
+                    // alert("表单填充已由用户手动中断。"); // Alert is handled by popup
                     this.statusUI.update("🛑 填充已中断。");
                 } else {
                     alert("表单填充完成！");
@@ -219,7 +182,7 @@
                 alert("表单填充过程中发生错误，请查看控制台日志。");
                 this.statusUI.update("❌ 发生错误，请查看控制台。");
             } finally {
-                this.removeStopButton();
+                // this.removeStopButton(); // Removed
                 setTimeout(() => this.statusUI.remove(), 3000);
             }
         }
@@ -791,15 +754,23 @@
     // Listen for messages from the background script
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (request.type === 'start-filling') {
-            const profile = request.payload;
-            agent.start(profile);
+            // Ensure we have a fresh agent instance for each run
+            if (window.formFillerAgent && !window.formFillerAgent.isStopped) {
+                console.log("填充任务已在进行中。");
+                return;
+            }
+            window.formFillerAgent = new FormFillerAgent();
+            window.formFillerAgent.start(request.payload);
+
         } else if (request.type === 'stop-filling') {
-            agent.isStopped = true;
+            if (window.formFillerAgent) {
+                window.formFillerAgent.isStopped = true;
+                console.log("中断信号已接收。将在当前步骤完成后停止。");
+            }
         }
+        return true; // Keep the message channel open for async response
     });
 
-    const agent = new FormFillerAgent();
-    // agent.start(); // The process will be started by a message from the popup
+    // const agent = new FormFillerAgent(); // Agent is now created on demand
 })();
-
 
