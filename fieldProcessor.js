@@ -312,7 +312,7 @@ const FieldProcessor = {
         `;
 
         try {
-            const response = await this.askLLM(prompt, 'gpt-4.1-turbo');
+            const response = await this.askLLM(prompt, 'gpt-4.1');
             const correctedJson = JSON.parse(response);
             console.log("[纠错模式] LLM返回的修正方案:", correctedJson);
 
