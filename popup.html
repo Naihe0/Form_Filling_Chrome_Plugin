@@ -1,26 +1,53 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh">
 <head>
-    <title>智能表单填充助手</title>
     <meta charset="UTF-8">
-    <link rel="stylesheet" href="style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>信息填充插件</title>
+    <link rel="stylesheet" href="popup.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="container">
-        <h1>智能表单填充助手</h1>
-        <div class="form-group">
-            <label for="apiKey">OpenAI API Key:</label>
-            <input type="password" id="apiKey" placeholder="请在此处粘贴您的 API Key">
+
+    <div id="app-container" class="app-container">
+        <!-- Top Button Group -->
+        <div id="top-button-container" class="button-group-top">
+            <button id="addButton" class="btn btn-secondary">ADD</button>
+            <button id="fillButton" class="btn btn-secondary active">FILL</button>
         </div>
-        <div class="form-group">
-            <label for="userProfile">用户个人资料:</label>
-            <textarea id="userProfile" rows="10" placeholder="请在此处粘贴您的个人资料..."></textarea>
+
+        <!-- View for ADD -->
+        <div id="add-view" class="view-container hidden">
+            <textarea id="profileDisplay" readonly placeholder="这里展示已保存的用户画像..."></textarea>
+            <div class="input-group-bottom">
+                <input type="text" id="userProfileInput" placeholder="输入您的用户画像...">
+                <button id="saveProfileButton" class="btn-icon" title="保存用户画像">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                </button>
+            </div>
         </div>
-        <button id="saveButton">保存配置</button>
-        <hr>
-        <button id="fillButton">开始填充当前页面表单</button>
+        
+        <!-- View for FILL -->
+        <div id="fill-view" class="view-container">
+             <div class="api-key-container">
+                <label for="apiKey">Your API Key</label>
+                <input type="password" id="apiKey" placeholder="输入您的API Key">
+            </div>
+            <button id="startFillingButton" class="btn btn-primary">Start Filling</button>
+        </div>
+
+        <!-- View for FILLING PROCESS -->
+        <div id="filling-view" class="view-container hidden">
+            <div class="spinner-container">
+                <div class="spinner"></div>
+            </div>
+            <button id="stopFillingButton" class="btn btn-danger">Stop Filling</button>
+        </div>
+        
+        <!-- Status Message Area -->
         <div id="status"></div>
     </div>
+
     <script src="popup.js"></script>
 </body>
 </html>

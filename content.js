@@ -28,6 +28,71 @@
         });
     }
 
+    // ========================================================================
+    // == VISUAL FEEDBACK UI                                               ==
+    // ========================================================================
+    class StatusUI {
+        constructor() {
+            this.overlay = null;
+            this.statusTextElement = null;
+            this.init();
+        }
+
+        init() {
+            // Avoid creating multiple overlays
+            if (document.getElementById('form-filler-overlay')) return;
+
+            this.overlay = document.createElement('div');
+            this.overlay.id = 'form-filler-overlay';
+            Object.assign(this.overlay.style, {
+                position: 'fixed',
+                bottom: '20px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                zIndex: '10000',
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                color: 'white',
+                padding: '15px 25px',
+                borderRadius: '10px',
+                boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '15px',
+                fontFamily: 'sans-serif',
+                fontSize: '16px',
+                transition: 'opacity 0.5s, bottom 0.5s',
+                opacity: '1'
+            });
+
+            this.statusTextElement = document.createElement('span');
+            this.overlay.appendChild(this.statusTextElement);
+            
+            document.body.appendChild(this.overlay);
+        }
+
+        update(message) {
+            if (!this.overlay || this.overlay.style.opacity === '0') {
+                this.init();
+            }
+            this.statusTextElement.textContent = message;
+            console.log("Status Update:", message);
+        }
+
+        remove() {
+            if (this.overlay) {
+                this.overlay.style.opacity = '0';
+                this.overlay.style.bottom = '-100px';
+                setTimeout(() => {
+                    if (this.overlay) {
+                        this.overlay.remove();
+                        this.overlay = null;
+                    }
+                }, 500);
+            }
+        }
+    }
+
+
     // --- Main Form Filling Logic ---
     class FormFillerAgent {
         constructor() {
@@ -38,6 +103,7 @@
             this.htmlChunks = []; // Store all HTML chunks
             this.filledFieldsCount = 0;
             this.totalFieldsToFill = 0;
+            this.statusUI = new StatusUI();
         }
 
         createStopButton() {
@@ -77,14 +143,17 @@
 
         async start() {
             this.createStopButton();
+            this.statusUI.update("🚀 开始填充表单...");
             try {
                 const { userProfile, apiKey } = await chrome.storage.local.get(['userProfile', 'apiKey']);
                 if (!apiKey) {
                     alert("错误：未找到 OpenAI API Key。请在插件弹窗中设置。");
+                    this.statusUI.update("❌ 未找到 API Key");
                     return;
                 }
                 if (!userProfile) {
                     alert("错误：未找到用户个人资料。请在插件弹窗中设置。");
+                    this.statusUI.update("❌ 未找到用户资料");
                     return;
                 }
 
@@ -95,33 +164,39 @@
                         break;
                     }
                     console.log("开始新一轮的字段提取与填充...");
+                    this.statusUI.update("🔍 正在提取页面字段...");
                     const all_fields_on_page = await this.extractFields();
 
                     if (this.isStopped) break;
 
                     if (!all_fields_on_page || all_fields_on_page.length === 0) {
                         console.log("当前页面未找到可填充字段。");
+                        this.statusUI.update("🤔 未找到可填充字段。");
                     } else {
                         const fields_to_fill = all_fields_on_page.filter(f => 
                             !this.successfully_filled_fields.has(f.selector)
                         );
 
                         if (fields_to_fill.length > 0) {
+                            this.statusUI.update(`🧠 正在请求LLM为 ${fields_to_fill.length} 个字段分析填充值...`);
                             const fields_with_values = await this.addValuesToFields(fields_to_fill, userProfile);
 
                             if (this.isStopped) break;
 
+                            let filledCount = 0;
                             for (const field of fields_with_values) {
                                 if (this.isStopped) break;
                                 
                                 // Check if the LLM provided a value for this field
                                 if (field.value !== undefined && field.value !== null) {
-                                    // The processSingleField function expects the value as a separate argument.
+                                    filledCount++;
+                                    this.statusUI.update(`✍️ 正在填充 (${filledCount}/${fields_to_fill.length}): ${field.question}`);
                                     await this.processSingleField(field, field.value, userProfile);
                                 }
                             }
                         } else {
                             console.log("所有已提取字段均已成功填充过。");
+                            this.statusUI.update("👍 所有字段均已填充。");
                         }
                     }
                     
@@ -134,68 +209,32 @@
                 
                 if (this.isStopped) {
                     alert("表单填充已由用户手动中断。");
+                    this.statusUI.update("🛑 填充已中断。");
                 } else {
                     alert("表单填充完成！");
+                    this.statusUI.update("✅ 表单填充完成！");
                 }
             } catch (e) {
                 console.error("表单填充过程中发生未捕获的错误:", e);
                 alert("表单填充过程中发生错误，请查看控制台日志。");
+                this.statusUI.update("❌ 发生错误，请查看控制台。");
             } finally {
                 this.removeStopButton();
+                setTimeout(() => this.statusUI.remove(), 3000);
             }
         }
 
         // ========================================================================
-        // == HYBRID FIELD EXTRACTION LOGIC                                    ==
+        // == LLM-BASED FIELD EXTRACTION LOGIC                                 ==
         // ========================================================================
 
         async extractFields() {
-            console.log("启动混合字段提取模式...");
-
-            // --- Step 1: Attempt deterministic extraction first ---
-            const deterministicFields = await this.extractFieldsDeterministically();
-            console.log(`[混合模式] 确定性提取初步找到 ${deterministicFields.length} 个字段。`);
-
-            // --- Step 2: Analyze the quality of the deterministic results ---
-            const qualityThreshold = 0.7; 
-            let goodLabels = 0;
-            // [FIX] Expanded blacklist for meaningless, generic labels.
-            const meaninglessLabels = ['请输入', '请选择', '请选择日期', '搜索', 'YYYY/MM/DD', 'Search for location', 'Round to 1 decimal place', '未找到标签'];
-
-            for (const field of deterministicFields) {
-                const question = field.question.trim();
-                if (!question) continue;
-
-                // Check 1: Is it a generic placeholder from our blacklist?
-                if (meaninglessLabels.some(ml => question.includes(ml))) {
-                    continue; // This is a low-quality label.
-                }
-
-                // Check 2: Is it a radio/checkbox option masquerading as a question?
-                // These often have very short labels (e.g., '男', '女', '是', '否', '其他').
-                if (field.action === 'click' && question.length <= 3) {
-                    console.log(`[质量评估] 字段 "${question}" 被识别为可能的选项标签，而非问题。`);
-                    continue; // This is a low-quality label.
-                }
-                
-                goodLabels++;
-            }
-
-            const qualityScore = deterministicFields.length > 0 ? goodLabels / deterministicFields.length : 0;
-            console.log(`[混合模式] 确定性提取质量评估: ${goodLabels}/${deterministicFields.length} (${(qualityScore * 100).toFixed(0)}%) 有效标签。`);
-
-            // --- Step 3: Decide whether to fall back to LLM ---
-            if (qualityScore < qualityThreshold && deterministicFields.length > 0) {
-                console.warn(`[混合模式] 确定性提取质量低于阈值 (${qualityThreshold * 100}%)。正在切换到 LLM 提取模式...`);
-                return this.extractFieldsWithLLM();
-            } else {
-                console.log("[混合模式] 确定性提取质量达标，将使用此结果。");
-                return deterministicFields;
-            }
+            console.log("启动LLM字段提取模式...");
+            return this.extractFieldsWithLLM();
         }
 
         // ========================================================================
-        // == METHOD 1: LLM-BASED EXTRACTION (The Fallback)                    ==
+        // == LLM-BASED EXTRACTION                                             ==
         // ========================================================================
 
         async extractFieldsWithLLM() {
@@ -281,11 +320,11 @@
         }
 
         async processHtmlChunkWithLLM(html, chunkIndex) {
-            const prompt = `你是一个HTML解析专家。严格分析以下HTML片段，并仅返回此片段中存在的表单字段。输出一个纯JSON数组，其中每个对象代表一个字段。\n\n分块处理: 正在处理多个块中的第 ${chunkIndex} 块。\n\n每个字段对象必须包含:\n- 'question': 字段的文本标签或相关问题。\n- 'action': 从 'fill', 'click', 'select_by_text' 中选择一个操作。\n- 'selector': 用于与元素交互的、唯一的、有效的CSS选择器。\n- 'options': (仅当 action 为 'select_by_text' 或 'click' 时需要) 一个包含可用选项文本的数组。\n\n指南:\n1.  **文本输入 (Text, Date, Textarea)**: 使用 'action': 'fill'。'selector' 应直接指向 <input> 或 <textarea> 元素。\n2.  **单选/复选框 (Radio/Checkbox)**: 为 **每一个** 可点击的选项创建一个独立的对象。使用 'action': 'click'。'selector' 必须指向该选项的 <input> 元素。'question' 应该是这组选项共同的问题。'options' 应该是一个只包含这个特定选项标签文本的数组 (例如: ['是'] 或 ['篮球'])。\n3.  **下拉菜单 (Select)**: 使用 'action': 'select_by_text'。'selector' 应指向 <select> 元素或触发下拉菜单的点击目标。'options' 必须是所有可见选项文本的完整列表。\n4.  **严格性**: 只分析提供的HTML。不要猜测或包含HTML之外的字段。确保输出是纯粹的、格式正确的JSON数组，不包含任何解释性文本。\n\nHTML片段如下:\n\`\`\`html\n${html}\n\`\`\`\n`;
+            const prompt = `你是一个HTML解析专家。严格分析以下网页问卷的HTML片段，并仅返回此片段中存在的表单字段。输出一个纯JSON数组，其中每个对象代表一个字段。\n\n分块处理: 正在处理多个块中的第 ${chunkIndex} 块。\n\n每个字段对象必须包含:\n- 'question': 字段的文本标签或相关问题。\n- 'action': 从 'fill', 'click', 'select_by_text' 中选择一个操作。\n- 'selector': 用于与元素交互的、唯一的、有效的CSS选择器。\n- 'options': (仅当 action 为 'select_by_text' 或 'click' 时需要) 一个包含可用选项文本的数组。\n\n指南:\n1.  **文本输入 (Text, Date, Textarea)**: 使用 'action': 'fill'。'selector' 应直接指向 <input> 或 <textarea> 元素。\n2.  **单选/复选框 (Radio/Checkbox)**: 为 **每一个** 可点击的选项创建一个独立的对象。使用 'action': 'click'。'selector' 必须指向该选项的 <input> 元素。'question' 应该是这组选项共同的问题。'options' 应该是一个只包含这个特定选项标签文本的数组 (例如: ['是'] 或 ['篮球'])。\n3.  **下拉菜单 (Select)**: 使用 'action': 'select_by_text'。'selector' 应指向 <select> 元素或触发下拉菜单的点击目标。'options' 必须是所有可见选项文本的完整列表。\n4.  **严格性**: 只分析提供的HTML。不要猜测或包含HTML之外的字段。确保输出是纯粹的、格式正确的JSON数组，不包含任何解释性文本。\n\nHTML片段如下:\n\`\`\`html\n${html}\n\`\`\`\n`;
 
             try {
                 console.log(`[LLM模式] Chunk #${chunkIndex} HTML to be processed (first 500 chars):\n`, html.substring(0, 500) + '...');
-                let rawResponse = await askLLM(prompt, 'gpt-4o-mini');
+                let rawResponse = await askLLM(prompt, 'gpt-4.1-mini');
                 console.log(`[LLM模式] Chunk #${chunkIndex} Raw LLM Response:\n`, rawResponse);
 
                 let extractedFields = rawResponse;
@@ -311,11 +350,6 @@
             }
         }
 
-
-        // ========================================================================
-        // == METHOD 2: DETERMINISTIC EXTRACTION (The Primary)                 ==
-        // ========================================================================
-
         getUniqueSelector(el) {
             if (!(el instanceof Element)) return;
             const path = [];
@@ -338,98 +372,6 @@
                 el = el.parentNode;
             }
             return path.join(" > ");
-        }
-
-        getLabelForElement(element) {
-            let labelText = '';
-            // a. 直接的 <label for="...">
-            if (element.id) {
-                const labelFor = document.querySelector(`label[for='${element.id}']`);
-                if (labelFor) labelText = labelFor.innerText;
-            }
-            // b. 包裹型 <label>
-            if (!labelText) {
-                const parentLabel = element.closest('label');
-                if (parentLabel) labelText = parentLabel.innerText;
-            }
-            // c. aria-label 或 aria-labelledby
-            if (!labelText) {
-                labelText = element.getAttribute('aria-label');
-            }
-            if (!labelText) {
-                const labelledby = element.getAttribute('aria-labelledby');
-                if (labelledby) {
-                    const labelElement = document.getElementById(labelledby);
-                    if (labelElement) labelText = labelElement.innerText;
-                }
-            }
-            // d. 作为备选，寻找最近的父级元素的文本
-            if (!labelText) {
-                let parent = element.parentElement;
-                let tries = 0;
-                while(parent && tries < 3) {
-                    const directText = Array.from(parent.childNodes)
-                        .filter(node => node.nodeType === Node.TEXT_NODE && (node.textContent || '').trim().length > 0)
-                        .map(node => (node.textContent || '').trim())
-                        .join(' ');
-
-                    if (directText) {
-                        labelText = directText;
-                        break;
-                    }
-                    parent = parent.parentElement;
-                    tries++;
-                }
-            }
-             // e. 使用 placeholder 作为最后的备选
-            if (!labelText && element.placeholder) {
-                labelText = element.placeholder;
-            }
-
-            return (labelText || '').trim().replace(/\s+/g, ' ');
-        }
-
-        async extractFieldsDeterministically() {
-            console.log("[确定性模式] 开始使用确定性方法提取字段...");
-            const formElements = Array.from(document.querySelectorAll('input, textarea, select'));
-            const allFields = [];
-
-            for (const element of formElements) {
-                // 忽略用于操作的输入元素
-                if (['hidden', 'submit', 'button', 'reset', 'image'].includes(element.type.toLowerCase())) {
-                    continue;
-                }
-
-                const selector = this.getUniqueSelector(element);
-                if (!selector) continue;
-
-                const labelText = this.getLabelForElement(element);
-
-                const field = {
-                    question: labelText || element.name || '未找到标签',
-                    action: '',
-                    selector: selector,
-                    options: []
-                };
-
-                // 2. 确定操作和选项
-                const tagName = element.tagName.toLowerCase();
-                const type = element.type.toLowerCase();
-
-                if (tagName === 'select') {
-                    field.action = 'select_by_text';
-                    field.options = Array.from(element.options).map(opt => (opt.text || '').trim()).filter(t => t);
-                } else if (type === 'checkbox' || type === 'radio') {
-                    field.action = 'click';
-                } else {
-                    field.action = 'fill';
-                }
-
-                allFields.push(field);
-            }
-            
-            console.log(`[确定性模式] 找到 ${allFields.length} 个字段。`, allFields);
-            return allFields;
         }
 
         async addValuesToFields(fields, profile) {
@@ -614,6 +556,7 @@
             
             console.error(`常规尝试最终失败: Action '${action}' on '${question}'. 正在调用 LLM 进行纠错...`);
             
+            this.statusUI.update(`🤔 字段 "${question}" 填充失败，尝试纠错...`);
             const fieldForCorrection = { ...field, selector: selector };
             const correctedField = await this.correctFieldWithLLM(fieldForCorrection, lastError, profile);
             
@@ -663,10 +606,14 @@
                     break;
                 case 'click':
                     if (value === true) {
-                        element.click();
-                        if (!element.classList.contains('checked')) {
-                            throw new Error(`元素 "${element.outerHTML}" 似乎未被正确点击或选中。`);
+                        // 优化：如果元素已经是选中状态，则直接视为成功。
+                        if (element.checked || element.getAttribute('aria-checked') === 'true') {
+                            console.log(`元素 "${element.outerHTML}" 已经是选中状态，跳过点击。`);
+                            return;
                         }
+                        element.click();
+                        // 使用新的、更鲁棒的验证方法
+                        await this.verifyClickSuccess(element);
                     }
                     break;
                 case 'select_by_text':
@@ -688,6 +635,48 @@
                 default:
                     throw new Error(`未知的操作类型: '${action}'`);
             }
+        }
+
+        async verifyClickSuccess(element) {
+            return new Promise((resolve, reject) => {
+                const timeout = 500; // 等待状态生效的最长时间 (ms)
+                const interval = 50;  // 检查间隔 (ms)
+                let elapsedTime = 0;
+    
+                const check = () => {
+                    // 1. 检查标准 'checked' 属性
+                    if (element.checked) {
+                        resolve();
+                        return;
+                    }
+    
+                    // 2. 检查 ARIA 属性
+                    if (element.getAttribute('aria-checked') === 'true') {
+                        resolve();
+                        return;
+                    }
+    
+                    // 3. 检查元素自身或其父元素的常见 class
+                    const commonCheckedClasses = ['checked', 'selected', 'active', 'is-checked', 't-is-checked'];
+                    const parent = element.parentElement;
+                    for (const cls of commonCheckedClasses) {
+                        if (element.classList.contains(cls) || (parent && parent.classList.contains(cls))) {
+                            resolve();
+                            return;
+                        }
+                    }
+    
+                    // 如果未满足条件，则在超时前继续检查
+                    elapsedTime += interval;
+                    if (elapsedTime >= timeout) {
+                        reject(new Error(`元素 "${element.outerHTML}" 在点击后未能确认其选中状态。`));
+                    } else {
+                        setTimeout(check, interval);
+                    }
+                };
+    
+                check(); // 开始检查
+            });
         }
 
         getSurroundingHtml(element, radius = 2000) {
@@ -714,62 +703,33 @@
             console.log("[纠错模式] 准备向 LLM 请求修正方案...");
             let htmlContext = '';
 
-            // 1. Try to use the HTML chunk associated with the field during extraction
             console.log(originalField);
-            // if (originalField.htmlChunk) {
-            //     let chunk = originalField.htmlChunk;
-            //     if (originalField.question && chunk.includes(originalField.question)) {
-            //         const idx = chunk.indexOf(originalField.question);
-            //         const start = Math.max(0, idx - 500);
-            //         const end = Math.min(chunk.length, idx + originalField.question.length + 500);
-            //         htmlContext = chunk.substring(start, end);
-            //         console.log('[纠错模式] 使用字段关联的HTML块，并截取问题文本上下500字符作为上下文。');
-            //     } else {
-            //         htmlContext = chunk;
-            //         console.log('[纠错模式] 使用字段关联的HTML块作为上下文（未截取）。');
-            //     }
-            // } 
-            // // 2. If no chunk, try to find the relevant chunk using the question text
-            // else if (originalField.question) {
-            //     const foundChunk = this.htmlChunks.find(chunk => chunk.includes(originalField.question));
-            //     if (foundChunk) {
-            //         const idx = foundChunk.indexOf(originalField.question);
-            //         const start = Math.max(0, idx - 500);
-            //         const end = Math.min(foundChunk.length, idx + originalField.question.length + 500);
-            //         htmlContext = foundChunk.substring(start, end);
-            //         console.log('[纠错模式] 通过问题文本定位到相关HTML块，并截取问题文本上下500字符作为上下文。');
-            //     }
-            // }
-
-            // 3. Fallback if context is still not found
-            if (true) {
-                // 尝试用问题文本在整个body中定位上下文
-                console.log('[纠错模式] 使用关联的HTML块或问题文本定位上下文。');
-                if (originalField.question) {
-                    const bodyHtml = document.body.outerHTML;
-                    const idx = bodyHtml.indexOf(originalField.question);
-                    console.log(`问题文本 "${originalField.question}" 在body中索引位置: ${idx}`);
-                    if (idx !== -1) {
-                        const start = Math.max(0, idx - 1000);
-                        const end = Math.min(bodyHtml.length, idx + originalField.question.length + 1000);
-                        htmlContext = bodyHtml.substring(start, end);
-                        console.log('[纠错模式] 通过问题文本在body中定位到上下文，并截取问题文本上下1000字符。');
-                    }
+            // 尝试用问题文本在整个body中定位上下文
+            console.log('[纠错模式] 使用关联的HTML块或问题文本定位上下文。');
+            if (originalField.question) {
+                const bodyHtml = document.body.outerHTML;
+                const idx = bodyHtml.indexOf(originalField.question);
+                console.log(`问题文本 "${originalField.question}" 在body中索引位置: ${idx}`);
+                if (idx !== -1) {
+                    const start = Math.max(0, idx - 1000);
+                    const end = Math.min(bodyHtml.length, idx + originalField.question.length + 1000);
+                    htmlContext = bodyHtml.substring(start, end);
+                    console.log('[纠错模式] 通过问题文本在body中定位到上下文，并截取问题文本上下1000字符。');
                 }
+            }
 
-                if (!htmlContext) {
-                    try {
-                        const element = document.querySelector(originalField.selector);
-                        if (element) {
-                            htmlContext = this.getSurroundingHtml(element);
-                            console.log('[纠错模式] 使用选择器定位元素并获取其周边HTML作为上下文。');
-                        } else {
-                            throw new Error('Element not found via selector');
-                        }
-                    } catch (e) {
-                        console.log(`[纠错模式] 无法通过选择器 \"${originalField.selector}\" 定位元素，且未找到关联的HTML块。将发送整个 body HTML 作为上下文。`);
-                        htmlContext = this.getVisibleHtml(); // Use the cleaned full HTML
+            if (!htmlContext) {
+                try {
+                    const element = document.querySelector(originalField.selector);
+                    if (element) {
+                        htmlContext = this.getSurroundingHtml(element);
+                        console.log('[纠错模式] 使用选择器定位元素并获取其周边HTML作为上下文。');
+                    } else {
+                        throw new Error('Element not found via selector');
                     }
+                } catch (e) {
+                    console.log(`[纠错模式] 无法通过选择器 \"${originalField.selector}\" 定位元素，且未找到关联的HTML块。将发送整个 body HTML 作为上下文。`);
+                    htmlContext = this.getVisibleHtml(); // Use the cleaned full HTML
                 }
             }
 
@@ -779,7 +739,7 @@
                 htmlContext = htmlContext.substring(0, 15000);
             }
 
-            console.log("[纠错模式] 发送给LLM的HTML上下文:", htmlContext.substring(0, 200) + "..."); // Log snippet
+            console.log("[纠错模式] 发送给LLM的HTML上下文:", htmlContext); // Log snippet
 
             try {
                 const correctionPrompt = `
@@ -799,10 +759,11 @@
                     ${profile}
                     \`\`\`
 
-                    请分析HTML并提供一个修正方案。你需要返回一个JSON对象，其中包含一个新的、更健壮的CSS选择器。
+                    请分析HTML并提供一个修正方案。你需要返回一个JSON对象，其中包含一个JS能点击的CSS选择器。
                     如果原始选择器是错误的，请提供 "newSelector"。
                     如果字段是单选按钮或复选框，请确保选择器定位到用户资料匹配的特定选项。
-                    如果原始选择器看起来是正确的，但可能因为时机问题或页面动态变化而失败，则返回原始选择器。
+                    如果原始选择器其实是正确的，但可能因为时机问题或页面动态变化而失败，则返回原始选择器。
+                    如果原始选择器其实是正确的，并且也点击成功了，则返回空。
 
                     返回格式必须是:
                     {
@@ -827,33 +788,6 @@
         }
     }
 
-    function updateStatus(message) {
-        const statusElement = document.getElementById('form-filler-status');
-        if (statusElement) {
-            statusElement.textContent = message;
-        } else {
-            console.log("状态更新:", message);
-        }
-    }
-
-    // Initial UI setup
-    (function initUI() {
-        const statusDiv = document.createElement('div');
-        statusDiv.id = 'form-filler-status';
-        statusDiv.style.position = 'fixed';
-        statusDiv.style.bottom = '10px';
-        statusDiv.style.right = '10px';
-        statusDiv.style.zIndex = '9999';
-        statusDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-        statusDiv.style.color = 'white';
-        statusDiv.style.padding = '10px 15px';
-        statusDiv.style.borderRadius = '5px';
-        statusDiv.style.fontSize = '14px';
-        statusDiv.style.maxWidth = '300px';
-        statusDiv.style.wordWrap = 'break-word';
-        document.body.appendChild(statusDiv);
-    })();
-
     // Listen for messages from the background script
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         if (request.type === 'start-filling') {
@@ -861,12 +795,11 @@
             agent.start(profile);
         } else if (request.type === 'stop-filling') {
             agent.isStopped = true;
-            updateStatus("填充已中断。");
         }
     });
 
     const agent = new FormFillerAgent();
-    agent.start();
+    // agent.start(); // The process will be started by a message from the popup
 })();
 
 
