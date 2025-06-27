@@ -103,6 +103,18 @@
             this.filledFieldsCount = 0;
             this.totalFieldsToFill = 0;
             this.statusUI = new StatusUI();
+
+            // Initialize the external field processor
+            if (typeof FieldProcessor !== 'undefined') {
+                FieldProcessor.init({
+                    statusUI: this.statusUI,
+                    successfully_filled_fields: this.successfully_filled_fields,
+                    askLLM: askLLM // Pass the global askLLM function
+                });
+            } else {
+                console.error("CRITICAL: FieldProcessor is not loaded. fieldProcessor.js must be injected before content.js");
+                this.statusUI.update("❌ 关键错误：模块加载失败！");
+            }
         }
 
         async start(payload) {
@@ -154,7 +166,8 @@
                                 if (field.value !== undefined && field.value !== null) {
                                     filledCount++;
                                     this.statusUI.update(`✍️ 正在填充 (${filledCount}/${fields_to_fill.length}): ${field.question}`);
-                                    await this.processSingleField(field, field.value, userProfile);
+                                    // Delegate to the external processor
+                                    await FieldProcessor.processSingleField(field, field.value, userProfile);
                                 }
                             }
                         } else {
@@ -283,7 +296,7 @@
         }
 
         async processHtmlChunkWithLLM(html, chunkIndex) {
-            const prompt = `你是一个HTML解析专家。严格分析以下网页问卷的HTML片段，并仅返回此片段中存在的表单字段。输出一个纯JSON数组，其中每个对象代表一个字段。\n\n分块处理: 正在处理多个块中的第 ${chunkIndex} 块。\n\n每个字段对象必须包含:\n- 'question': 字段的文本标签或相关问题。\n- 'action': 从 'fill', 'click', 'select_by_text' 中选择一个操作。\n- 'selector': 用于与元素交互的、唯一的、有效的CSS选择器。\n- 'options': (仅当 action 为 'select_by_text' 或 'click' 时需要) 一个包含可用选项文本的数组。\n\n指南:\n1.  **文本输入 (Text, Date, Textarea)**: 使用 'action': 'fill'。'selector' 应直接指向 <input> 或 <textarea> 元素。\n2.  **单选/复选框 (Radio/Checkbox)**: 为 **每一个** 可点击的选项创建一个独立的对象。使用 'action': 'click'。'selector' 必须指向该选项的 <input> 元素。'question' 应该是这组选项共同的问题。'options' 应该是一个只包含这个特定选项标签文本的数组 (例如: ['是'] 或 ['篮球'])。\n3.  **下拉菜单 (Select)**: 使用 'action': 'select_by_text'。'selector' 应指向 <select> 元素或触发下拉菜单的点击目标。'options' 必须是所有可见选项文本的完整列表。\n4.  **严格性**: 只分析提供的HTML。不要猜测或包含HTML之外的字段。确保输出是纯粹的、格式正确的JSON数组，不包含任何解释性文本。\n\nHTML片段如下:\n\`\`\`html\n${html}\n\`\`\`\n`;
+            const prompt = `你是一个HTML解析专家。严格分析以下网页问卷的HTML片段，并仅返回此片段中存在的表单字段。输出一个纯JSON数组，其中每个对象代表一个字段。\n\n分块处理: 正在处理多个块中的第 ${chunkIndex} 块。\n\n每个字段对象必须包含:\n- 'question': 字段的文本标签或相关问题。\n- 'action': 从 'fill', 'click'，'select_by_text' 中选择一个操作。\n- 'selector': 用于与元素交互的、唯一的、有效的CSS选择器。\n- 'options': (仅当 action 为 'select_by_text' 或 'click' 时需要) 一个包含可用选项文本的数组。\n\n指南:\n1.  **文本输入 (Text, Date, Textarea)**: 使用 'action': 'fill'。'selector' 应直接指向 <input> 或 <textarea> 元素。\n2.  **单选/复选框 (Radio/Checkbox)**: 为 **每一个** 可点击的选项创建一个独立的对象。使用 'action': 'click'。'selector' 必须指向该选项的 <input> 元素。'question' 应该是这组选项共同的问题。'options' 应该是一个只包含这个特定选项标签文本的数组 (例如: ['是'] 或 ['篮球'])。\n3.  **下拉菜单 (Select)**: 使用 'action': 'select_by_text'。'selector' 应指向 <select> 元素或触发下拉菜单的点击目标。'options' 必须是所有可见选项文本的完整列表。\n4.  **严格性**: 只分析提供的HTML。不要猜测或包含HTML之外的字段。确保输出是纯粹的、格式正确的JSON数组，不包含任何解释性文本。\n\nHTML片段如下:\n\`\`\`html\n${html}\n\`\`\`\n`;
 
             try {
                 console.log(`[LLM模式] Chunk #${chunkIndex} HTML to be processed (first 500 chars):\n`, html.substring(0, 500) + '...');
@@ -315,7 +328,7 @@
 
         getUniqueSelector(el) {
             if (!(el instanceof Element)) return;
-            const path = [];
+            let path = [];
             while (el.nodeType === Node.ELEMENT_NODE) {
                 let selector = el.nodeName.toLowerCase();
                 if (el.id) {
@@ -395,360 +408,7 @@
             }
         }
 
-        async processSingleField(field, value, profile) {
-            let { selector, action, question } = field;
-            const MAX_RETRIES = 2; 
-            let lastError = null;
-            let elementToProcess = null;
-
-            // --- Ambiguity Resolution ---
-            try {
-                const potentialElements = Array.from(document.querySelectorAll(selector));
-
-                if (potentialElements.length > 1) {
-                    console.log(`[歧义处理] 选择器 "${selector}" 匹配到 ${potentialElements.length} 个元素。将通过问题文本 "${question}" 进行精确定位。`);
-                    
-                    // Find the best element that matches the question and is not yet filled.
-                    let minDistance = Infinity;
-                    let bestElement = null;
-                    let bestLabel = '';
-                    const normalize = str => (str || '').replace(/\s+/g, '').toLowerCase();
-                    const normQuestion = normalize(question);
-
-                    for (const el of potentialElements) {
-                        const uniqueElSelector = this.getUniqueSelector(el);
-                        if (this.successfully_filled_fields.has(uniqueElSelector)) {
-                            continue; // Skip already filled elements
-                        }
-
-                        // 向上查找最近的父节点，其 textContent 包含 question 文本
-                        let parent = el.parentElement;
-                        let distance = 1;
-                        let found = false;
-                        let foundLabel = '';
-                        while (parent && distance < 10) {
-                            const labelText = parent.textContent ? parent.textContent.trim() : '';
-                            const normLabel = normalize(labelText);
-                            if (normLabel && (normLabel.includes(normQuestion) || normQuestion.includes(normLabel))) {
-                                found = true;
-                                foundLabel = labelText;
-                                break;
-                            }
-                            parent = parent.parentElement;
-                            distance++;
-                        }
-                        if (found && distance < minDistance) {
-                            minDistance = distance;
-                            bestElement = el;
-                            bestLabel = foundLabel;
-                        }
-                    }
-                    // 选取距离最近的那个
-                    if (bestElement) {
-                        console.log(`[歧义处理] 选择距离问题文本最近的元素 (父节点内容: "${bestLabel}")。`);
-                        elementToProcess = bestElement;
-                    }
-                } else if (potentialElements.length === 1) {
-                    elementToProcess = potentialElements[0];
-                }
-
-                // If we found an element, get its unique selector for processing and tracking
-                if (elementToProcess) {
-                    const uniqueSelector = this.getUniqueSelector(elementToProcess);
-                    // Check if this specific element has already been filled. This can happen if two
-                    // fields from the LLM point to the same element.
-                    if (this.successfully_filled_fields.has(uniqueSelector)) {
-                         console.warn(`[歧义处理] 目标元素 ${uniqueSelector} (问题: "${question}") 已经被填充过，将跳过。`);
-                         return;
-                    }
-                    selector = uniqueSelector; // This is the key change: we now use the unique selector.
-                }
-                
-            } catch (e) {
-                console.warn(`初始选择器 "${selector}" 无效: ${e.message}`);
-                // Let the retry loop handle it.
-            }
-            // --- End of Ambiguity Resolution ---
-
-            for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-                let element;
-                try {
-                    element = document.querySelector(selector);
-                } catch (e) {
-                    lastError = e;
-                    console.warn(`Attempt ${attempt}/${MAX_RETRIES}: Invalid selector: \"${selector}\". Error: ${e.message}`);
-                    break; 
-                }
-
-                if (!element) {
-                    lastError = new Error(`Element not found with selector: ${selector}`);
-                    console.warn(`Attempt ${attempt}/${MAX_RETRIES}: ${lastError.message} (Question: ${question})`);
-                    await new Promise(r => setTimeout(r, 500 * attempt));
-                    continue;
-                }
-
-                element.style.transition = 'all 0.3s';
-                element.style.border = '2px solid red';
-                element.style.backgroundColor = '#fff0f0';
-                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-                await new Promise(r => setTimeout(r, 300));
-
-                try {
-                    await this.executeAction(element, action, value);
-                    console.log(`成功 (尝试 ${attempt}): Action '${action}' on '${question}' with value '${value}'`);
-                    element.style.border = '2px solid green';
-                    element.style.backgroundColor = '#f0fff0';
-                    // Use the unique selector for tracking
-                    this.successfully_filled_fields.add(selector);
-                    
-                    await new Promise(r => setTimeout(r, 500)); 
-                    element.style.border = '';
-                    element.style.backgroundColor = '';
-                    return; 
-
-                } catch (e) {
-                    lastError = e;
-                    console.warn(`失败 (尝试 ${attempt}/${MAX_RETRIES}): Action '${action}' on '${question}'. Error:`, e);
-                    element.style.border = '2px solid orange';
-                    if (attempt < MAX_RETRIES) {
-                        await new Promise(r => setTimeout(r, 500 * attempt));
-                    }
-                }
-            }
-            
-            console.error(`常规尝试最终失败: Action '${action}' on '${question}'. 正在调用 LLM 进行纠错...`);
-            
-            this.statusUI.update(`🤔 字段 "${question}" 填充失败，尝试纠错...`);
-            const fieldForCorrection = { ...field, selector: selector };
-            const correctedField = await this.correctFieldWithLLM(fieldForCorrection, lastError, profile);
-            
-            if (correctedField) {
-                console.log("[纠错模式] 获得修正建议，正在最后一次尝试:", correctedField);
-                let element;
-                try {
-                    element = document.querySelector(correctedField.selector);
-                } catch (e) {
-                    console.error(`[纠错模式] 修正后的选择器 '${correctedField.selector}' 是无效的. Error: ${e.message}`);
-                    element = null;
-                }
-
-                if (element) {
-                    try {
-                        element.style.border = '2px solid blue';
-                        element.style.backgroundColor = '#f0f8ff';
-                        await this.executeAction(element, correctedField.action, value);
-                        console.log(`成功 (纠错后): Action '${correctedField.action}' on '${correctedField.question}' with value '${value}'`);
-                        element.style.border = '2px solid green';
-                        element.style.backgroundColor = '#f0fff0';
-                        this.successfully_filled_fields.add(correctedField.selector);
-                        
-                        await new Promise(r => setTimeout(r, 500));
-                        element.style.border = '';
-                        element.style.backgroundColor = '';
-                        return;
-                    } catch (e) {
-                        console.error(`最终失败 (纠错后): Action '${correctedField.action}' on '${correctedField.question}'. Error:`, e);
-                    }
-                } else {
-                    console.error(`[纠错模式] 修正后的选择器 '${correctedField.selector}' 找不到元素或无效。`);
-                }
-            } else {
-                console.error(`[纠错模式] LLM 未能提供修正建议。彻底放弃字段 '${question}'。`);
-            }
-        }
-
-        async executeAction(element, action, value) {
-            switch (action) {
-                case 'fill':
-                    if (typeof value !== 'boolean') {
-                        element.value = value;
-                        element.dispatchEvent(new Event('input', { bubbles: true }));
-                        element.dispatchEvent(new Event('change', { bubbles: true }));
-                    }
-                    break;
-                case 'click':
-                    if (value === true) {
-                        // 优化：如果元素已经是选中状态，则直接视为成功。
-                        if (element.checked || element.getAttribute('aria-checked') === 'true') {
-                            console.log(`元素 "${element.outerHTML}" 已经是选中状态，跳过点击。`);
-                            return;
-                        }
-                        element.click();
-                        // 使用新的、更鲁棒的验证方法
-                        await this.verifyClickSuccess(element);
-                    }
-                    break;
-                case 'select_by_text':
-                    const option = Array.from(element.options).find(opt => opt.text.trim() === value.trim());
-                    if (option) {
-                        element.value = option.value;
-                        element.dispatchEvent(new Event('change', { bubbles: true }));
-                    } else {
-                        element.click();
-                        await new Promise(r => setTimeout(r, 300));
-                        const textOption = Array.from(document.querySelectorAll('li, [role="option"]')).find(el => el.textContent.trim() === value.trim());
-                        if (textOption) {
-                            textOption.click();
-                        } else {
-                            throw new Error(`在下拉菜单中找不到选项: "${value}"`);
-                        }
-                    }
-                    break;
-                default:
-                    throw new Error(`未知的操作类型: '${action}'`);
-            }
-        }
-
-        async verifyClickSuccess(element) {
-            return new Promise((resolve, reject) => {
-                const timeout = 500; // 等待状态生效的最长时间 (ms)
-                const interval = 50;  // 检查间隔 (ms)
-                let elapsedTime = 0;
-    
-                const check = () => {
-                    // 1. 检查标准 'checked' 属性
-                    if (element.checked) {
-                        resolve();
-                        return;
-                    }
-    
-                    // 2. 检查 ARIA 属性
-                    if (element.getAttribute('aria-checked') === 'true') {
-                        resolve();
-                        return;
-                    }
-    
-                    // 3. 检查元素自身或其父元素的常见 class
-                    const commonCheckedClasses = ['checked', 'selected', 'active', 'is-checked', 't-is-checked'];
-                    const parent = element.parentElement;
-                    for (const cls of commonCheckedClasses) {
-                        if (element.classList.contains(cls) || (parent && parent.classList.contains(cls))) {
-                            resolve();
-                            return;
-                        }
-                    }
-    
-                    // 如果未满足条件，则在超时前继续检查
-                    elapsedTime += interval;
-                    if (elapsedTime >= timeout) {
-                        reject(new Error(`元素 "${element.outerHTML}" 在点击后未能确认其选中状态。`));
-                    } else {
-                        setTimeout(check, interval);
-                    }
-                };
-    
-                check(); // 开始检查
-            });
-        }
-
-        getSurroundingHtml(element, radius = 2000) {
-            let parent = element.parentElement;
-            if (!parent) return element.outerHTML;
-
-            // Go up to find a parent that contains a decent chunk of HTML
-            while (parent && parent.outerHTML.length < radius && parent.tagName !== 'BODY') {
-                element = parent;
-                parent = parent.parentElement;
-            }
-            
-            return element.outerHTML;
-        }
-
-        getVisibleHtml() {
-            // Clones the document body, removes script/style tags, and returns the outer HTML.
-            const bodyClone = document.body.cloneNode(true);
-            bodyClone.querySelectorAll('script, style, noscript').forEach(el => el.remove());
-            return bodyClone.outerHTML;
-        }
-
-        async correctFieldWithLLM(originalField, error, profile) {
-            console.log("[纠错模式] 准备向 LLM 请求修正方案...");
-            let htmlContext = '';
-
-            console.log(originalField);
-            // 尝试用问题文本在整个body中定位上下文
-            console.log('[纠错模式] 使用关联的HTML块或问题文本定位上下文。');
-            if (originalField.question) {
-                const bodyHtml = document.body.outerHTML;
-                const idx = bodyHtml.indexOf(originalField.question);
-                console.log(`问题文本 "${originalField.question}" 在body中索引位置: ${idx}`);
-                if (idx !== -1) {
-                    const start = Math.max(0, idx - 1000);
-                    const end = Math.min(bodyHtml.length, idx + originalField.question.length + 1000);
-                    htmlContext = bodyHtml.substring(start, end);
-                    console.log('[纠错模式] 通过问题文本在body中定位到上下文，并截取问题文本上下1000字符。');
-                }
-            }
-
-            if (!htmlContext) {
-                try {
-                    const element = document.querySelector(originalField.selector);
-                    if (element) {
-                        htmlContext = this.getSurroundingHtml(element);
-                        console.log('[纠错模式] 使用选择器定位元素并获取其周边HTML作为上下文。');
-                    } else {
-                        throw new Error('Element not found via selector');
-                    }
-                } catch (e) {
-                    console.log(`[纠错模式] 无法通过选择器 \"${originalField.selector}\" 定位元素，且未找到关联的HTML块。将发送整个 body HTML 作为上下文。`);
-                    htmlContext = this.getVisibleHtml(); // Use the cleaned full HTML
-                }
-            }
-
-            // Truncate context if it's too long
-            if (htmlContext.length > 15000) {
-                console.warn(`[纠错模式] HTML 上下文过长 (${htmlContext.length} chars)，将截断为 15000 字符。`);
-                htmlContext = htmlContext.substring(0, 15000);
-            }
-
-            console.log("[纠错模式] 发送给LLM的HTML上下文:", htmlContext); // Log snippet
-
-            try {
-                const correctionPrompt = `
-                    你是一个Web自动化专家。一个自动化脚本在网页上填充字段时可能失败了。
-                    失败的字段信息:
-                    - 问题: \"${originalField.question}\"
-                    - 尝试的CSS选择器: \"${originalField.selector}\"
-                    - 字段类型: \"${originalField.action}\\"
-
-                    这是该字段相关的HTML上下文:
-                    \`\`\`html
-                    ${htmlContext}
-                    \`\`\`
-
-                    用户个人资料如下:
-                    \`\`\`json
-                    ${profile}
-                    \`\`\`
-
-                    请分析HTML并提供一个修正方案。你需要返回一个JSON对象，其中包含一个JS能点击的CSS选择器。
-                    如果原始选择器是错误的，请提供 "newSelector"。
-                    如果字段是单选按钮或复选框，请确保选择器定位到用户资料匹配的特定选项。
-                    如果原始选择器其实是正确的，但可能因为时机问题或页面动态变化而失败，则返回原始选择器。
-                    如果原始选择器其实是正确的，并且也点击成功了，则返回空。
-
-                    返回格式必须是:
-                    {
-                      "newSelector": "<correct_css_selector>"
-                    }
-                `;
-
-                const correction = await askLLM(correctionPrompt, 'gpt-4.1');
-
-                console.log("[纠错模式] LLM返回的修正方案:", correction);
-
-                if (correction && correction.newSelector) {
-                    return { ...originalField, selector: correction.newSelector };
-                } else {
-                    console.error("[纠错模式] LLM未能提供有效的修正选择器。");
-                    return null;
-                }
-            } catch (error) {
-                console.error("[纠错模式] 调用LLM进行纠错时发生严重错误:", error);
-                return null;
-            }
-        }
+        // All field processing logic has been moved to fieldProcessor.js
     }
 
     // Listen for messages from the background script

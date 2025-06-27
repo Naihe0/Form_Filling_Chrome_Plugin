@@ -152,7 +152,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             await chrome.scripting.executeScript({
                 target: { tabId: tab.id },
-                files: ['content.js']
+                files: ['fieldProcessor.js', 'content.js']
             });
 
             // Send the necessary data to start the process
