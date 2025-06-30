@@ -15,8 +15,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
-async function callOpenAI(prompt, apiKey, model = 'gpt-4o') {
-    const API_URL = 'https://api.openai.com/v1/chat/completions';
+async function callOpenAI(prompt, apiKey, model) {
+    let API_URL;
+    let apiName = 'OpenAI'; // Default to OpenAI
+    // Determine API URL based on the model selected
+    if (model.startsWith('deepseek')) {
+        API_URL = 'https://api.deepseek.com/v1/chat/completions';
+        apiName = 'DeepSeek';
+    } else {
+        API_URL = 'https://api.openai.com/v1/chat/completions';
+    }
 
     const response = await fetch(API_URL, {
         method: 'POST',
@@ -28,18 +36,18 @@ async function callOpenAI(prompt, apiKey, model = 'gpt-4o') {
             model: model,
             messages: [{ role: 'user', content: prompt }],
             temperature: 0.1,
-            // For some requests, we might want guaranteed JSON
             ...(prompt.includes("JSON") && { response_format: { "type": "json_object" } })
         })
     });
 
     if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(`OpenAI API Error: ${response.status} ${response.statusText} - ${errorData.error.message}`);
+        throw new Error(`${apiName} API Error: ${response.status} ${response.statusText} - ${errorData.error.message}`);
     }
 
     const data = await response.json();
-    const content = data.choices[0].message.content;
+    console.log(`${apiName} API Response Data:`, JSON.stringify(data, null, 2));
+    const content = data.choices[0]?.message?.content || "";
 
     // Clean up potential markdown code blocks
     if (content.startsWith("```")) {

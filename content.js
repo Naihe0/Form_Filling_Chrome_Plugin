@@ -35,6 +35,9 @@
         constructor() {
             this.overlay = null;
             this.statusTextElement = null;
+            this.timerInterval = null; // To hold the interval ID
+            this.startTime = null; // To hold the start time
+            this.baseMessage = ''; // To hold the base message for the timer
             this.init();
         }
 
@@ -78,7 +81,33 @@
             console.log("Status Update:", message);
         }
 
+        updateBaseMessage(newBaseMessage) {
+            this.baseMessage = newBaseMessage;
+        }
+
+        startTimer(baseMessage) {
+            this.stopTimer(); // Ensure no other timer is running
+            this.startTime = Date.now();
+            this.baseMessage = baseMessage;
+            const updateWithTime = () => {
+                const elapsedTime = Math.round((Date.now() - this.startTime) / 1000);
+                this.update(`${this.baseMessage} (${elapsedTime}s)`);
+            };
+            updateWithTime(); // Initial update
+            this.timerInterval = setInterval(updateWithTime, 1000); // Update every second
+        }
+
+        stopTimer() {
+            if (this.timerInterval) {
+                clearInterval(this.timerInterval);
+                this.timerInterval = null;
+                this.startTime = null;
+                this.baseMessage = '';
+            }
+        }
+
         remove() {
+            this.stopTimer(); // Stop timer when removing the UI
             if (this.overlay) {
                 this.overlay.style.opacity = '0';
                 this.overlay.style.bottom = '-100px';
@@ -103,29 +132,33 @@
             this.filledFieldsCount = 0;
             this.totalFieldsToFill = 0;
             this.statusUI = new StatusUI();
-
-            // Initialize the external field processor
-            if (typeof FieldProcessor !== 'undefined') {
-                FieldProcessor.init({
-                    statusUI: this.statusUI,
-                    successfully_filled_fields: this.successfully_filled_fields,
-                    askLLM: askLLM // Pass the global askLLM function
-                });
-            } else {
-                console.error("CRITICAL: FieldProcessor is not loaded. fieldProcessor.js must be injected before content.js");
-                this.statusUI.update("❌ 关键错误：模块加载失败！");
-            }
+            this.model = 'gpt-4.1'; // Default model
+            // FieldProcessor will be initialized in the start() method
+            // once the user-selected model is known.
         }
 
         async start(payload) {
             this.statusUI.update("🚀 开始填充表单...");
             try {
-                const { userProfile, apiKey } = payload;
-                if (!apiKey) {
-                    alert("错误：未找到 OpenAI API Key。请在插件弹窗中设置。");
-                    this.statusUI.update("❌ 未找到 API Key");
+                const { profile: userProfile, model } = payload;
+                this.model = model || 'gpt-4.1';
+
+                // Initialize the field processor with the correct model for this run
+                if (typeof FieldProcessor !== 'undefined') {
+                    FieldProcessor.init({
+                        statusUI: this.statusUI,
+                        successfully_filled_fields: this.successfully_filled_fields,
+                        askLLM: askLLM, // Pass the global askLLM function
+                        selectedModel: this.model // Pass the selected model
+                    });
+                } else {
+                    console.error("CRITICAL: FieldProcessor is not loaded. fieldProcessor.js must be injected before content.js");
+                    this.statusUI.update("❌ 关键错误：模块加载失败！");
+                    // Stop execution if the critical module is missing
                     return;
                 }
+
+                // The API key is handled by the background script, no need to check for it here.
                 if (!userProfile) {
                     alert("错误：未找到用户个人资料。请在插件弹窗中设置。");
                     this.statusUI.update("❌ 未找到用户资料");
@@ -139,8 +172,11 @@
                         break;
                     }
                     console.log("开始新一轮的字段提取与填充...");
-                    this.statusUI.update("🔍 正在提取页面字段...");
+                    
+                    // Start timer and show initial message
+                    this.statusUI.startTimer("🔍 正在提取页面字段...");
                     const all_fields_on_page = await this.extractFields();
+                    this.statusUI.stopTimer(); // Stop timer after extraction is complete
 
                     if (this.isStopped) break;
 
@@ -153,8 +189,10 @@
                         );
 
                         if (fields_to_fill.length > 0) {
-                            this.statusUI.update(`🧠 正在请求LLM为 ${fields_to_fill.length} 个字段分析填充值...`);
+                            // Start timer for the value analysis phase
+                            this.statusUI.startTimer(`🧠 正在请求LLM为 ${fields_to_fill.length} 个字段分析填充值...`);
                             const fields_with_values = await this.addValuesToFields(fields_to_fill, userProfile);
+                            this.statusUI.stopTimer(); // Stop timer after analysis
 
                             if (this.isStopped) break;
 
@@ -263,6 +301,9 @@
                     console.log("[LLM模式] 字段提取被用户中断。");
                     return [];
                 }
+                // Update status base message with chunk progress
+                this.statusUI.updateBaseMessage(`🔍 正在提取页面字段... (${index + 1}/${chunks.length})`);
+
                 console.log(`[LLM模式] 正在处理块 ${index + 1}/${chunks.length}...`);
                 const result = await this.processHtmlChunkWithLLM(chunk, index + 1);
                 if (result && Array.isArray(result)) {
@@ -296,11 +337,30 @@
         }
 
         async processHtmlChunkWithLLM(html, chunkIndex) {
-            const prompt = `你是一个HTML解析专家。严格分析以下网页问卷的HTML片段，并仅返回此片段中存在的表单字段。输出一个纯JSON数组，其中每个对象代表一个字段。\n\n分块处理: 正在处理多个块中的第 ${chunkIndex} 块。\n\n每个字段对象必须包含:\n- 'question': 字段的文本标签或相关问题。\n- 'action': 从 'fill', 'click'，'select_by_text' 中选择一个操作。\n- 'selector': 用于与元素交互的、唯一的、有效的CSS选择器。\n- 'options': (仅当 action 为 'select_by_text' 或 'click' 时需要) 一个包含可用选项文本的数组。\n\n指南:\n1.  **文本输入 (Text, Date, Textarea)**: 使用 'action': 'fill'。'selector' 应直接指向 <input> 或 <textarea> 元素。\n2.  **单选/复选框 (Radio/Checkbox)**: 为 **每一个** 可点击的选项创建一个独立的对象。使用 'action': 'click'。'selector' 必须指向该选项的 <input> 元素。'question' 应该是这组选项共同的问题。'options' 应该是一个只包含这个特定选项标签文本的数组 (例如: ['是'] 或 ['篮球'])。\n3.  **下拉菜单 (Select)**: 使用 'action': 'select_by_text'。'selector' 应指向 <select> 元素或触发下拉菜单的点击目标。'options' 必须是所有可见选项文本的完整列表。\n4.  **严格性**: 只分析提供的HTML。不要猜测或包含HTML之外的字段。确保输出是纯粹的、格式正确的JSON数组，不包含任何解释性文本。\n\nHTML片段如下:\n\`\`\`html\n${html}\n\`\`\`\n`;
+            const prompt = 
+            `
+            你是一个HTML解析专家。严格分析以下网页问卷的HTML片段，
+            并仅返回此片段中存在的所有问卷问题，选项等信息。输出一个纯JSON数组，
+            其中每个对象代表一个问题。\n\n
+            分块处理: 正在处理多个块中的第 ${chunkIndex} 块。\n\n
+            每个字段对象必须包含:\n
+            - 'question': 问题文本。\n
+            - 'action': "click" 或 "fill"。\n
+            - 'selector': 用来回当前问题，能够用JavaScript代码发起事件进行点击或者填充的选择器。如果问题是选择题，返回包含所有选项对应选择器的数组。\n
+            - 'options': 一个包含所有可用选项文本的数组。\n\n
+            
+            指南:\n
+            1.  **严格性**: 只分析提供的HTML。不要猜测或包含HTML之外的字段。确保输出是纯粹的、格式正确的JSON数组，不包含任何解释性文本。\n\n
+            HTML片段如下:\n
+            \`\`\`
+            html\n${html}\n
+            \`\`\`\n
+            `;
 
             try {
+                // console.log(`[LLM模式] Chunk #${chunkIndex} Prompt:\n`, prompt);
                 console.log(`[LLM模式] Chunk #${chunkIndex} HTML to be processed (first 500 chars):\n`, html.substring(0, 500) + '...');
-                let rawResponse = await askLLM(prompt, 'gpt-4.1-mini');
+                let rawResponse = await askLLM(prompt, this.model); // Use the correct model
                 console.log(`[LLM模式] Chunk #${chunkIndex} Raw LLM Response:\n`, rawResponse);
 
                 let extractedFields = rawResponse;
@@ -358,18 +418,43 @@
             }));
 
             console.log("发送给LLM用于添加填充值的字段:", JSON.stringify(fieldsForPrompt, null, 2));
-            const prompt = `你是一个智能表单填充与修正助手。根据提供的用户资料，分析下面的JSON字段数组。你的任务是：\n1.  为每个可以填充的字段添加一个 'value' 键。\n2.  (可选) 如果发现字段的 'selector' 或 'options' 不正确或不完整，请修正它们。\n3.  **重要**: 你必须在返回的每个对象中保留原始的 '_id' 字段。\n\n--- 用户资料 ---\n${profile}\n\n--- 表单字段 (JSON数组) ---\n${JSON.stringify(fieldsForPrompt, null, 2)}\n\n--- 填充与修正规则 ---\n-   **分析**: 仔细分析每个字段对象的 'question', 'action', 'selector', 和 'options'。\n-   **填充 'value'**: 根据用户资料确定最匹配的填充值。\n    -   对于 'click' 操作，如果应该点击，'value' 设为布尔值 \\\`true\\\`。\n    -   对于 'select_by_text' 操作，'value' 必须是 'options' 数组中完全匹配的字符串。\n    -   如果找不到对应信息，则 **不要** 添加 'value' 键。\n-   **修正**: 如果你认为 'selector' 不够健壮或 'options' 列表不完整，你可以更新它们。\n-   **输出**: 你 **必须** 返回完整的、被修改后的JSON数组。数组中的对象必须包含原始的 '_id'。输出必须是纯粹的JSON数组。\n\n--- 输出 (修改后的JSON数组) ---`;
+            const prompt = `
+            你是一个高度智能的AI表单填充助手。你的任务是根据用户资料，为给定的JSON字段数组中的每个对象添加一个 'value' 键。
+
+            --- 用户资料 ---
+            ${profile}
+
+            --- 表单字段 (JSON数组) ---
+            ${JSON.stringify(fieldsForPrompt, null, 2)}
+
+            --- 填充规则 ---
+            1.  **分析**: 仔细分析每个字段对象的 'question', 'action', 和 'options'。
+            2.  **填充 'value'**: 根据用户资料和问题，确定最匹配的填充值。
+                *   对于 **"action": "fill"**，'value' 应该是一个 **字符串**。
+                *   对于 **"action": "click"** 的单选题，'value' 应该是一个 **字符串**，且必须是 'options' 数组中的一个值。
+                *   对于 **"action": "click"** 的多选题，'value' 应该是一个 **字符串数组**，其中每个值都必须是 'options' 数组中的一个值。
+                *   如果根据用户资料找不到任何匹配的答案，请 **不要** 添加 'value' 键，并原样保留该对象。
+            3.  **保留ID**: 你 **必须** 在返回的每个JSON对象中保留原始的 '_id' 字段。
+            4.  **输出**: 你的输出必须是，也只能是一个JSON数组，其中包含所有被处理过的字段对象。不要添加任何解释性文字或将它包装在另一个JSON对象中。
+
+            --- 输出 (修改后的JSON数组) ---
+            `;
             
             try {
-                let updatedFieldsFromLLM = await askLLM(prompt, 'gpt-4.1-mini');
+                console.log("[LLM模式] 添加填充值的提示:", prompt);
+                let updatedFieldsFromLLM = await askLLM(prompt, this.model); // Use the correct model
                 console.log("LLM 返回的带填充值的字段:", updatedFieldsFromLLM);
                 
-                // Handle cases where LLM wraps the array in an object (e.g., { "result": [...] })
+                // Handle cases where LLM returns a single object instead of an array
                 if (typeof updatedFieldsFromLLM === 'object' && updatedFieldsFromLLM !== null && !Array.isArray(updatedFieldsFromLLM)) {
                     const arrayKey = Object.keys(updatedFieldsFromLLM).find(key => Array.isArray(updatedFieldsFromLLM[key]));
                     if (arrayKey) {
                         console.log(`Found array in key '${arrayKey}', unwrapping it.`);
                         updatedFieldsFromLLM = updatedFieldsFromLLM[arrayKey];
+                    } else {
+                        // If the response is a single object, wrap it in an array to handle the case where only one field is returned.
+                        console.log("LLM returned a single object, wrapping it in an array.");
+                        updatedFieldsFromLLM = [updatedFieldsFromLLM];
                     }
                 }
 

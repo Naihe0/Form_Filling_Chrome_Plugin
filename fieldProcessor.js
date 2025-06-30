@@ -9,6 +9,7 @@ const FieldProcessor = {
     statusUI: null,
     successfully_filled_fields: null,
     askLLM: null,
+    selectedModel: null,
 
     /**
      * Initializes the FieldProcessor with necessary dependencies from the calling agent.
@@ -16,11 +17,13 @@ const FieldProcessor = {
      * @param {StatusUI} agentContext.statusUI - The UI handler for status updates.
      * @param {Set<string>} agentContext.successfully_filled_fields - A set of selectors for already filled fields.
      * @param {function} agentContext.askLLM - The function to communicate with the LLM.
+     * @param {string} agentContext.selectedModel - The model selected by the user.
      */
     init(agentContext) {
         this.statusUI = agentContext.statusUI;
         this.successfully_filled_fields = agentContext.successfully_filled_fields;
         this.askLLM = agentContext.askLLM;
+        this.selectedModel = agentContext.selectedModel;
     },
 
     /**
@@ -31,7 +34,97 @@ const FieldProcessor = {
      * @param {object} profile - The user's profile data.
      */
     async processSingleField(field, value, profile) {
-        let { selector, action, question } = field;
+        // ========================================================================
+        // == REFACTORED LOGIC FOR HANDLING RADIO/CHECKBOX GROUPS              ==
+        // ========================================================================
+        if (Array.isArray(field.selector) && field.action.toLowerCase().includes('click') && field.options && value) {
+            console.log(`[选项组处理] 检测到选项组字段: "${field.question}"，需要选择: "${value}"`);
+
+            const valuesToSelect = Array.isArray(value) ? value : [value];
+            let allSucceeded = true;
+            let lastError = null;
+
+            // --- First Pass: Attempt to fill all options directly --- 
+            for (const singleValue of valuesToSelect) {
+                const optionIndex = field.options.findIndex(opt => opt.includes(singleValue) || singleValue.includes(opt));
+
+                if (optionIndex === -1) {
+                    console.error(`[选项组处理] 在选项 [${field.options.join(', ')}] 中未找到值 "${singleValue}"。`);
+                    allSucceeded = false;
+                    lastError = new Error(`Option value "${singleValue}" not found in available options.`);
+                    continue; 
+                }
+
+                const targetSelector = field.selector[optionIndex];
+                if (!targetSelector) {
+                    console.error(`[选项组处理] 索引 ${optionIndex} 在选择器数组中无效。`);
+                    allSucceeded = false;
+                    lastError = new Error(`Selector for option index ${optionIndex} is invalid.`);
+                    continue;
+                }
+
+                console.log(`[选项组处理] 尝试点击: "${singleValue}" -> 选择器: "${targetSelector}"`);
+                
+                try {
+                    const element = document.querySelector(targetSelector);
+                    if (!element) {
+                        throw new Error(`Element not found with selector: ${targetSelector}`);
+                    }
+                    
+                    element.style.transition = 'all 0.3s';
+                    element.style.border = '2px solid red';
+                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    await new Promise(r => setTimeout(r, 100));
+
+                    await this.executeAction(element, 'click', singleValue);
+                    
+                    element.style.border = '2px solid green';
+                    this.successfully_filled_fields.add(this.getUniqueSelector(element));
+                    console.log(`✅ [选项组处理] 成功点击: "${targetSelector}"`);
+
+                } catch (e) {
+                    console.error(`❌ [选项组处理] 点击选择器 "${targetSelector}" 时失败:`, e.message);
+                    allSucceeded = false;
+                    lastError = e; // Keep the last error for context
+                }
+            }
+
+            // --- If any option failed, trigger LLM correction for the whole group --- 
+            if (!allSucceeded) {
+                console.error(`[选项组处理] 字段 "${field.question}" 未能成功处理所有选项，将对整个组进行LLM纠错。`);
+                this.statusUI.update(`🤔 选项组 "${field.question}" 填充失败，尝试纠错...`);
+                
+                // We pass the original field object, which contains all selectors and options.
+                const fieldForCorrection = { ...field, value: valuesToSelect }; 
+
+                try {
+                    const correctedField = await this.correctFieldWithLLM(fieldForCorrection, lastError, profile);
+
+                    if (correctedField && correctedField.selector && correctedField.action) {
+                        this.statusUI.update(`✅ 纠错成功，正在重试字段 "${field.question}"...`);
+                        console.log("[纠错后重试] 使用LLM修正后的新参数:", correctedField);
+                        
+                        // We re-run processSingleField with the corrected data from the LLM.
+                        // The corrected data might be a completely new field structure.
+                        await this.processSingleField(correctedField, correctedField.value || valuesToSelect, profile);
+
+                    } else {
+                        throw new Error("LLM 纠错未能返回有效的修正方案。");
+                    }
+                } catch (correctionError) {
+                    console.error(`❌ 字段 "${field.question}" 彻底失败，LLM 纠错也无效:`, correctionError.message);
+                    this.statusUI.update(`❌ 字段 "${field.question}" 填充失败`);
+                }
+            }
+
+            return; // Exit, as we have handled the group processing or correction.
+        }
+        // ========================================================================
+        // == END OF REFACTORED LOGIC                                          ==
+        // ========================================================================
+
+        let { selector, action, question, value: fieldValue } = field; // value is now destructured
+        const valueToFill = value || fieldValue; // Use value from args, fallback to field object's value
         const MAX_RETRIES = 2;
         let lastError = null;
         let elementToProcess = null;
@@ -41,14 +134,19 @@ const FieldProcessor = {
             const potentialElements = Array.from(document.querySelectorAll(selector));
 
             if (potentialElements.length > 1) {
-                console.log(`[歧义处理] 选择器 "${selector}" 匹配到 ${potentialElements.length} 个元素。将通过问题文本 "${question}" 进行精确定位。`);
+                console.log(`[歧义处理] 选择器 "${selector}" 匹配到 ${potentialElements.length} 个元素。将通过问题文本 "${question}" 和答案 "${valueToFill}" 进行精确定位。`);
                 
+                const isClickAction = action.toLowerCase().includes('click');
+                const searchText = isClickAction ? valueToFill : question;
+                const searchContext = isClickAction ? '答案' : '问题';
+                console.log(`[歧义处理] 当前操作为 "${action}"，将使用 "${searchContext}" ("${searchText}") 来寻找最佳匹配。`);
+
                 let minDistance = Infinity;
                 let bestElement = null;
                 let bestLabel = '';
-                const normalize = str => (str || '').replace(/\\s+/g, '').toLowerCase();
-                const normQuestion = normalize(question);
-
+                const normalize = str => (str || '').replace(/\s+/g, '').toLowerCase();
+                const normSearchText = normalize(searchText);
+                
                 for (const el of potentialElements) {
                     const uniqueElSelector = this.getUniqueSelector(el);
                     if (this.successfully_filled_fields.has(uniqueElSelector)) {
@@ -59,17 +157,33 @@ const FieldProcessor = {
                     let distance = 1;
                     let found = false;
                     let foundLabel = '';
-                    while (parent && distance < 10) {
-                        const labelText = parent.textContent ? parent.textContent.trim() : '';
-                        const normLabel = normalize(labelText);
-                        if (normLabel && (normLabel.includes(normQuestion) || normQuestion.includes(normLabel))) {
+
+                    // For click actions, also check the element's own text or value, which is a strong signal.
+                    if (isClickAction) {
+                        const elText = normalize(el.textContent || el.innerText || el.value);
+                        if (elText.includes(normSearchText)) {
                             found = true;
-                            foundLabel = labelText;
-                            break;
+                            foundLabel = (el.textContent || el.innerText || el.value).trim();
+                            distance = 0; // Closest possible match
                         }
-                        parent = parent.parentElement;
-                        distance++;
                     }
+                    
+                    // If not found in the element itself, search in nearby parent elements.
+                    if (!found) {
+                        while (parent && distance < 10) {
+                            const labelText = parent.textContent ? parent.textContent.trim() : '';
+                            const normLabel = normalize(labelText);
+                            // For clicks, we look for the value text. For fills, we look for the question label.
+                            if (normLabel && (normLabel.includes(normSearchText) || normSearchText.includes(normLabel))) {
+                                found = true;
+                                foundLabel = labelText;
+                                break;
+                            }
+                            parent = parent.parentElement;
+                            distance++;
+                        }
+                    }
+
                     if (found && distance < minDistance) {
                         minDistance = distance;
                         bestElement = el;
@@ -78,8 +192,11 @@ const FieldProcessor = {
                 }
                 
                 if (bestElement) {
-                    console.log(`[歧义处理] 选择距离问题文本最近的元素 (父节点内容: "${bestLabel}")。`);
+                    console.log(`[歧义处理] 选择距离 ${searchContext}文本 最近的元素 (匹配内容: "${bestLabel}")。`);
                     elementToProcess = bestElement;
+                } else {
+                    console.warn(`[歧义处理] 未能根据 "${searchText}" 在多个元素中找到明确的最佳匹配。将默认使用第一个可用的元素。`);
+                    elementToProcess = potentialElements.find(el => !this.successfully_filled_fields.has(this.getUniqueSelector(el))) || null;
                 }
             } else if (potentialElements.length === 1) {
                 elementToProcess = potentialElements[0];
@@ -123,7 +240,7 @@ const FieldProcessor = {
             await new Promise(r => setTimeout(r, 300));
 
             try {
-                await this.executeAction(element, action, value);
+                await this.executeAction(element, action, valueToFill);
                 console.log(`✅ [尝试 ${attempt}] 成功: Action '${action}' on '${question}' with selector '${selector}'`);
                 
                 // Cleanup visual feedback
@@ -146,7 +263,7 @@ const FieldProcessor = {
         console.error(`常规尝试最终失败: Action '${action}' on '${question}'. 正在调用 LLM 进行纠错...`);
         
         this.statusUI.update(`🤔 字段 "${question}" 填充失败，尝试纠错...`);
-        const fieldForCorrection = { ...field, selector: selector };
+        const fieldForCorrection = { ...field, selector: selector, value: valueToFill }; // Pass value for context
         try {
             const correctedField = await this.correctFieldWithLLM(fieldForCorrection, lastError, profile);
 
@@ -155,8 +272,12 @@ const FieldProcessor = {
                 console.log("[纠错后重试] 使用LLM修正后的新参数:", correctedField);
                 const finalElement = document.querySelector(correctedField.selector);
                 if (finalElement) {
-                    await this.executeAction(finalElement, correctedField.action, correctedField.value || value);
-                    this.successfully_filled_fields.add(correctedField.selector);
+                    // Use the value from the corrected field, or the original value if not provided.
+                    const finalValue = correctedField.value || valueToFill;
+                    await this.executeAction(finalElement, correctedField.action, finalValue);
+                    // Use the corrected selector for tracking success, get the unique one for robustness
+                    const finalSelector = this.getUniqueSelector(finalElement);
+                    this.successfully_filled_fields.add(finalSelector);
                     console.log(`✅ [纠错后] 成功: Action '${correctedField.action}' on '${question}'`);
                 } else {
                     throw new Error("LLM 纠错后仍然找不到元素。");
@@ -187,6 +308,12 @@ const FieldProcessor = {
                         console.warn("初步点击可能未成功，尝试模拟原生事件...");
                         const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
                         element.dispatchEvent(clickEvent);
+                        if (!await this.verifyClickSuccess(element)) {
+                            console.error(`点击操作失败: ${element.tagName} (${element.className})`);
+                            reject(new Error(`点击操作失败: ${element.tagName} (${element.className})`));
+                        } else {
+                            console.log(`✅ 点击操作成功: ${element.tagName} (${element.className})`);
+                        }
                     }
                 } else if (action.toLowerCase().includes('select') || element.tagName === 'SELECT') {
                     element.focus();
@@ -222,13 +349,48 @@ const FieldProcessor = {
      * @returns {Promise<boolean>} - True if the click seemed successful.
      */
     async verifyClickSuccess(element) {
-        // A simple heuristic: check if the element is still visible and enabled.
-        // A more complex check could involve observing DOM mutations.
         return new Promise(resolve => {
             setTimeout(() => {
+                // Check 1: For native radio/checkbox, the 'checked' property is the source of truth.
+                if ((element.type === 'radio' || element.type === 'checkbox')) {
+                    if (element.checked) {
+                        console.log('[VerifyClick] Success: Native checkbox/radio is checked.');
+                        resolve(true);
+                    } else {
+                        console.warn('[VerifyClick] Failure: Native checkbox/radio is NOT checked.');
+                        resolve(false);
+                    }
+                    return;
+                }
+
+                // Check 2: For ARIA custom controls, check aria-checked or aria-selected.
+                if (element.getAttribute('aria-checked') === 'true' || element.getAttribute('aria-selected') === 'true') {
+                    console.log('[VerifyClick] Success: ARIA state is checked/selected.');
+                    resolve(true);
+                    return;
+                }
+
+                // Check 3: If the element is no longer in the document, the click likely succeeded (e.g., a close button).
+                if (!document.body.contains(element)) {
+                    console.log('[VerifyClick] Success: Element was removed from DOM.');
+                    resolve(true);
+                    return;
+                }
+
+                // Check 4: If the element is now hidden, the click may have succeeded.
                 const style = window.getComputedStyle(element);
-                const isVisible = style.display !== 'none' && style.visibility !== 'hidden' && element.offsetParent !== null;
-                resolve(isVisible && !element.disabled);
+                const isVisible = style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && element.offsetParent !== null;
+                if (!isVisible) {
+                    console.log('[VerifyClick] Success: Element is no longer visible.');
+                    resolve(true);
+                    return;
+                }
+
+                // Fallback: For other elements (like standard buttons that don't change state),
+                // assume success if it's still enabled. This is an optimistic check.
+                console.log('[VerifyClick] Fallback: Assuming success for visible, enabled element.');
+                resolve(!element.disabled);
+
             }, 500); // Wait a bit for UI to update
         });
     },
@@ -288,6 +450,7 @@ const FieldProcessor = {
             - 问题: \"${originalField.question}\"
             - 尝试的CSS选择器: \"${originalField.selector}\"
             - 字段类型: \"${originalField.action}\"
+            - 期望填充的值: \"${originalField.value || '(无特定值)'}\"
 
             这是该字段相关的HTML上下文:
             \`\`\`html
@@ -299,28 +462,43 @@ const FieldProcessor = {
             ${JSON.stringify(profile, null, 2)}
             \`\`\`
 
-            请分析HTML并提供一个修正方案。你需要返回一个JSON对象，其中包含一个JS能点击的CSS选择器。
-            如果原始选择器是错误的，请提供 "newSelector"。
-            如果字段是单选按钮或复选框，请确保选择器定位到用户资料匹配的特定选项。
-            如果原始选择器其实是正确的，但可能因为时机问题或页面动态变化而失败，则返回原始选择器。
-            如果原始选择器其实是正确的，并且也点击成功了，则返回空。
+            请分析HTML并提供一个修正方案。你需要返回一个JSON对象，其中包含修正后的字段信息。
+            - 如果原始选择器是错误的，请提供一个新的、更精确的 \`newSelector\`。
+            - 如果是单选/复选框，确保 \`newSelector\` 定位到与 “期望填充的值” 匹配的那个具体 \`<input>\` 元素。
+            - 如果 \`action\` 不正确 (例如, 应该用 \`click\` 而不是 \`input\`), 请提供 \`newAction\`。
+            - 如果 \`value\` 不正确 (例如, 选项的实际 \`value\` 属性与文本不同), 请提供 \`newValue\`。
+            - 如果原始选择器和操作都正确，但依然失败，你可以返回原始值，脚本会重试。
+            - 如果你认为这个字段无法被修复或者其实点击/填充成功了，返回 \`{"error": "无法修复的原因"}\`。
 
             返回格式必须是:
             {
-              "newSelector": "<correct_css_selector>"
+              \"newSelector\": \"<correct_css_selector>\",
+              \"newAction\": \"<input|click|select>\",
+              \"newValue\": \"<corrected_value>\"
             }
         `;
 
         try {
-            const response = await this.askLLM(prompt, 'gpt-4.1');
-            const correctedJson = JSON.parse(response);
+            // The askLLM function in content.js already parses the JSON string.
+            // We receive an object here, so no need to parse it again.
+            const correctedJson = await this.askLLM(prompt, this.selectedModel); // Use this.selectedModel
             console.log("[纠错模式] LLM返回的修正方案:", correctedJson);
 
-            if (correctedJson && correctedJson.newSelector) {
-                return { ...originalField, selector: correctedJson.newSelector };
-            } else {
-                console.error("[纠错模式] LLM未能提供有效的修正选择器。");
+            if (correctedJson && correctedJson.error) {
+                console.error(`[纠错模式] LLM报告无法修复: ${correctedJson.error}`);
                 return null;
+            }
+
+            if (correctedJson && correctedJson.newSelector) {
+                return {
+                    ...originalField,
+                    selector: correctedJson.newSelector,
+                    action: correctedJson.newAction || originalField.action,
+                    value: correctedJson.newValue || originalField.value // The value to fill might also be corrected
+                };
+            } else {
+                console.warn("[纠错模式] LLM未能提供有效的修正选择器，将使用原始选择器重试。");
+                return originalField; // Return original field to retry
             }
         } catch (e) {
             console.error("[纠错模式] 调用LLM进行纠错时发生严重错误:", e);

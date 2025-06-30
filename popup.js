@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // FILL View elements
     const apiKeyInput = document.getElementById('apiKey');
+    const modelSelect = document.getElementById('model-select');
     const startFillingButton = document.getElementById('startFillingButton');
 
     // Top buttons
@@ -92,7 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function saveApiKey() {
         const apiKey = apiKeyInput.value.trim();
          if (!apiKey) {
-            showStatus("API Key 不能为空", true);
+            showStatus('Please enter your API key.', true);
             return false;
         }
         chrome.storage.local.set({ apiKey });
@@ -100,16 +101,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     /**
+     * Saves the selected model to storage.
+     */
+    function saveModel() {
+        const selectedModel = modelSelect.value;
+        chrome.storage.local.set({ selectedModel });
+    }
+
+    /**
      * Loads all settings from chrome.storage when the popup opens.
      */
     function loadSettings() {
-        chrome.storage.local.get(['apiKey', 'userProfile'], (result) => {
+        chrome.storage.local.get(['apiKey', 'userProfile', 'selectedModel', 'isFilling'], (result) => {
             if (result.apiKey) {
                 apiKeyInput.value = result.apiKey;
             }
             if (result.userProfile) {
-                profileDisplay.value = result.userProfile;
+                profileDisplay.textContent = result.userProfile;
             }
+            if (result.selectedModel) {
+                modelSelect.value = result.selectedModel;
+            }
+            // Restore the filling state
+            isFilling = result.isFilling || false;
+            updateUI(); // Update UI after loading the state
         });
     }
 
@@ -131,41 +146,58 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Save Profile button
     saveProfileButton.addEventListener('click', saveProfile);
+
+    // Save model on change
+    modelSelect.addEventListener('change', saveModel);
     
     // Start Filling button
     startFillingButton.addEventListener('click', async () => {
         // Save the API key and check if it's valid before starting
         if (!saveApiKey()) {
-            return; // Stop if API key is empty
+            return;
         }
+        // Also save the model preference
+        saveModel();
 
         isFilling = true;
+        chrome.storage.local.set({ isFilling: true }); // Persist state
         updateUI();
         showStatus('正在开始填充...');
 
         try {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-            if (!tab) throw new Error("找不到活动标签页。");
 
-            // Get user profile and API key to send to content script
-            const { userProfile, apiKey } = await chrome.storage.local.get(['userProfile', 'apiKey']);
-
+            // --- SCRIPT INJECTION ---
+            // In Manifest V3, we must programmatically inject scripts.
             await chrome.scripting.executeScript({
                 target: { tabId: tab.id },
                 files: ['fieldProcessor.js', 'content.js']
             });
 
-            // Send the necessary data to start the process
-            chrome.tabs.sendMessage(tab.id, { 
+            const { userProfile, selectedModel } = await chrome.storage.local.get(['userProfile', 'selectedModel']);
+
+            if (!userProfile) {
+                showStatus('请先在 ADD 视图中添加并保存您的用户画像。', true);
+                isFilling = false;
+                chrome.storage.local.set({ isFilling: false }); // Persist state
+                updateUI();
+                return;
+            }
+
+            // Send a message to the content script to start the process
+            chrome.tabs.sendMessage(tab.id, {
                 type: 'start-filling',
-                payload: { userProfile, apiKey }
+                payload: {
+                    profile: userProfile,
+                    model: selectedModel || 'gpt-4o' // Pass the selected model
+                }
             });
-            showStatus('填充指令已发送！');
 
         } catch (e) {
-            console.error("启动填充流程失败:", e);
-            showStatus(`错误: ${e.message}`, true);
+            console.error("Error starting fill process:", e);
+            showStatus(`启动失败: ${e.message}`, true);
             isFilling = false;
+            chrome.storage.local.set({ isFilling: false }); // Persist state
             updateUI();
         }
     });
@@ -173,6 +205,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Stop Filling button
     stopFillingButton.addEventListener('click', async () => {
         isFilling = false;
+        chrome.storage.local.set({ isFilling: false }); // Persist state
         updateUI();
         showStatus('正在发送停止指令...');
 
@@ -189,6 +222,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Initialization ---
+    // Load settings and update the UI accordingly
     loadSettings();
-    updateUI();
+    // The updateUI() call is now inside loadSettings to ensure correct order
 });
