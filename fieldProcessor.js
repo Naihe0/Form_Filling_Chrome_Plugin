@@ -414,10 +414,10 @@ const FieldProcessor = {
             const idx = bodyHtml.indexOf(originalField.question);
             console.log(`问题文本 "${originalField.question}" 在body中索引位置: ${idx}`);
             if (idx !== -1) {
-                const start = Math.max(0, idx - 2000);
-                const end = Math.min(bodyHtml.length, idx + originalField.question.length + 2000);
+                const start = Math.max(0, idx - 500);
+                const end = Math.min(bodyHtml.length, idx + originalField.question.length + 3000);
                 htmlContext = bodyHtml.substring(start, end);
-                console.log('[纠错模式] 通过问题文本在body中定位到上下文，并截取问题文本上下2000字符。');
+                console.log('[纠错模式] 通过问题文本在body中定位到上下文，并截取问题文本上下3000字符。');
             }
         }
 
