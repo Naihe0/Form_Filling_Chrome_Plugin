@@ -10,7 +10,8 @@
   ],
   "host_permissions": [
     "https://api.openai.com/",
-    "https://api.deepseek.com/"
+    "https://api.deepseek.com/",
+    "https://api.mem0.com/"
   ],
   "action": {
     "default_popup": "popup.html",

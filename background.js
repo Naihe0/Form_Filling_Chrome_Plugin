@@ -26,6 +26,11 @@ async function callOpenAI(prompt, apiKey, model) {
         API_URL = 'https://api.openai.com/v1/chat/completions';
     }
 
+    // --- Token usage tracking ---
+    if (!globalThis._llmTokenStats) {
+        globalThis._llmTokenStats = { input: 0, output: 0 };
+    }
+
     const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
@@ -48,6 +53,19 @@ async function callOpenAI(prompt, apiKey, model) {
     const data = await response.json();
     console.log(`${apiName} API Response Data:`, JSON.stringify(data, null, 2));
     const content = data.choices[0]?.message?.content || "";
+
+    // --- Token usage logging ---
+    let inputTokens = 0, outputTokens = 0;
+    if (data.usage) {
+        inputTokens = data.usage.prompt_tokens || 0;
+        outputTokens = data.usage.completion_tokens || 0;
+        globalThis._llmTokenStats.input += inputTokens;
+        globalThis._llmTokenStats.output += outputTokens;
+        console.log(`[Token统计] ${apiName} 本次 Input: ${inputTokens}, Output: ${outputTokens}`);
+        console.log(`[Token统计] ${apiName} 累计 Input: ${globalThis._llmTokenStats.input}, Output: ${globalThis._llmTokenStats.output}`);
+    } else {
+        console.warn(`[Token统计] ${apiName} 未返回 usage 字段，无法统计token。`);
+    }
 
     // Clean up potential markdown code blocks
     if (content.startsWith("```")) {

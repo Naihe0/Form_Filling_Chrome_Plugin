@@ -1,4 +1,49 @@
 (async function() {
+    // ===== mem0_profile.js 逻辑内嵌 =====
+    /**
+     * 拉取mem0平台的用户画像
+     * @param {Object} options
+     * @param {string} options.user_id
+     * @param {string} options.apiKey
+     * @param {string} options.orgId
+     * @param {string} options.projectId
+     * @param {string} [options.dateFrom] - yyyy-mm-dd
+     * @param {string} [options.dateTo] - yyyy-mm-dd
+     * @returns {Promise<Array>} profile数组
+     */
+    async function fetchMem0Profile({ user_id, apiKey, orgId, projectId }) {
+        const url = 'https://api.mem0.ai/v2/memories/';
+        const body = {
+            filters: {
+                "AND": [
+                    { "user_id": user_id },
+                    { "run_id": "*" }
+                ]
+            },
+            org_id: orgId,
+            project_id: projectId
+        };
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Token ${apiKey}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error('mem0 profile 拉取失败');
+        const data = await res.json();
+        console.log('[mem0 debug] mem0 profile 拉取结果:', data);
+        // 组装profile
+        return (Array.isArray(data) ? data : []).map(item => ({
+            memory: item.memory,
+            categories: item.categories,
+            date: item.created_at ? item.created_at.split('T')[0] : '',
+            day_of_week: item.structured_attributes?.day_of_week || ''
+        }));
+    }
+    // ===== end mem0_profile.js 逻辑 =====
+
     console.log("智能表单填充助手：内容脚本已加载。");
 
     // --- Helper function to communicate with background script ---
@@ -140,8 +185,39 @@
         async start(payload) {
             this.statusUI.update("🚀 开始填充表单...");
             try {
-                const { profile: userProfile, model } = payload;
+                let { profile: userProfile, model, mem0Enable, mem0UserId, mem0ApiKey, mem0OrgId, mem0ProjectId } = payload;
                 this.model = model || 'gpt-4.1';
+
+                console.log("用户信息:", userProfile);
+                // 检查mem0开关，若开启则优先拉取mem0 profile
+                if (mem0Enable) {
+                    this.statusUI.update("⏳ 正在从mem0平台拉取用户画像...");
+                    try {
+                        console.log('[mem0 debug] 拉取参数:', {
+                            user_id: mem0UserId,
+                            apiKey: mem0ApiKey,
+                            orgId: mem0OrgId,
+                            projectId: mem0ProjectId,
+                        });
+                        const mem0ProfileArr = await fetchMem0Profile({
+                            user_id: mem0UserId,
+                            apiKey: mem0ApiKey,
+                            orgId: mem0OrgId,
+                            projectId: mem0ProjectId
+                        });
+                        console.log('[mem0 debug] mem0ProfileArr:', mem0ProfileArr);
+                        // 组装成字符串格式
+                        userProfile = mem0ProfileArr.map(item => {
+                            return `memory: ${item.memory}\ncategories: ${item.categories?.join(',') || ''}\ndate: ${item.date}\nday_of_week: ${item.day_of_week}`;
+                        }).join('\n---\n');
+                        this.statusUI.update("mem0画像拉取成功，正在填充...");
+                    } catch (e) {
+                        this.statusUI.update("❌ mem0画像拉取失败，使用本地画像");
+                        console.error('[mem0 debug] mem0画像拉取失败', e);
+                    }
+                }
+
+
 
                 // Initialize the field processor with the correct model for this run
                 if (typeof FieldProcessor !== 'undefined') {

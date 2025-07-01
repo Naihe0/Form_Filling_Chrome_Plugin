@@ -18,18 +18,28 @@
 
         <!-- View for ADD -->
         <div id="add-view" class="view-container hidden">
-            <textarea id="profileDisplay" readonly placeholder="这里展示已保存的用户画像..."></textarea>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <textarea id="profileDisplay" readonly placeholder="这里展示已保存的用户画像..." style="flex:1;"></textarea>
+            </div>
             <div class="input-group-bottom">
                 <input type="text" id="userProfileInput" placeholder="输入您的用户画像...">
+                <button id="editProfileButton" class="btn btn-secondary">Edit</button>
                 <button id="saveProfileButton" class="btn-icon" title="保存用户画像">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 </button>
+            </div>
+            <div style="margin-top: 10px; display: flex; align-items: center; justify-content: flex-end;">
+                <label for="mem0-upload-toggle" style="margin-right: 8px; font-size: 14px;">同步至mem0</label>
+                <label class="switch">
+                  <input type="checkbox" id="mem0-upload-toggle">
+                  <span class="slider round"></span>
+                </label>
             </div>
         </div>
         
         <!-- View for FILL -->
         <div id="fill-view" class="view-container">
-             <div class="api-key-container">
+            <div class="api-key-container">
                 <label for="apiKey">Your API Key</label>
                 <input type="password" id="apiKey" placeholder="输入您的API Key">
             </div>
@@ -39,6 +49,13 @@
                     <option value="gpt-4.1">GPT-4.1 (OpenAI)</option>
                     <option value="deepseek-chat">DeepSeek-Chat</option>
                 </select>
+            </div>
+            <div style="margin: 10px 0 0 0; display: flex; align-items: center; justify-content: flex-end;">
+                <label for="mem0-enable-toggle" style="margin-right: 8px; font-size: 14px;">启用mem0</label>
+                <label class="switch">
+                  <input type="checkbox" id="mem0-enable-toggle">
+                  <span class="slider round"></span>
+                </label>
             </div>
             <button id="startFillingButton" class="btn btn-primary">Start Filling</button>
         </div>
