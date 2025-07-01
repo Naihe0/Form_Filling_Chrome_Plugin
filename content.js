@@ -44,19 +44,23 @@
     }
     // ===== end mem0_profile.js 逻辑 =====
 
-    console.log("智能表单填充助手：内容脚本已加载。");
+    console.log("智能表单填充助手：内容脚本已加载。" );
 
     // --- Helper function to communicate with background script ---
     async function askLLM(prompt, model = 'gpt-4.1') {
         const { apiKey } = await chrome.storage.local.get('apiKey');
         if (!apiKey) {
-            alert("请先在插件弹窗中设置您的 OpenAI API Key。");
+            alert("请先在插件弹窗中设置您的 OpenAI API Key。" );
             throw new Error("API Key not found.");
         }
-        return new Promise((resolve, reject) => {
+
+        const llmPromise = new Promise((resolve, reject) => {
             chrome.runtime.sendMessage(
                 { type: 'llm-request', payload: { prompt, apiKey, model } },
                 (response) => {
+                    if (chrome.runtime.lastError) {
+                        return reject(new Error(chrome.runtime.lastError.message));
+                    }
                     if (response.success) {
                         try {
                             // The response might be a stringified JSON
@@ -71,6 +75,12 @@
                 }
             );
         });
+
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('LLM request timed out after 90 seconds.')), 90000) // 90-second timeout
+        );
+
+        return Promise.race([llmPromise, timeoutPromise]);
     }
 
     // ========================================================================

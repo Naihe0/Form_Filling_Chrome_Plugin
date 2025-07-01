@@ -479,9 +479,16 @@ const FieldProcessor = {
         `;
 
         try {
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('LLM a timeout occurred during correction.')), 30000) // 30秒超时
+            );
+
             // The askLLM function in content.js already parses the JSON string.
             // We receive an object here, so no need to parse it again.
-            const correctedJson = await this.askLLM(prompt, this.selectedModel); // Use this.selectedModel
+            const correctedJson = await Promise.race([
+                this.askLLM(prompt, this.selectedModel),
+                timeoutPromise
+            ]);
             console.log("[纠错模式] LLM返回的修正方案:", correctedJson);
 
             if (correctedJson && correctedJson.error) {
