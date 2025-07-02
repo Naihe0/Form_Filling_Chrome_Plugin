@@ -32,8 +32,9 @@ const FieldProcessor = {
      * @param {object} field - The field object from the LLM.
      * @param {string} value - The value to fill in.
      * @param {object} profile - The user's profile data.
+     * @param {number} correctionAttempt - Internal counter for retry attempts.
      */
-    async processSingleField(field, value, profile) {
+    async processSingleField(field, value, profile, correctionAttempt = 0) {
         // ========================================================================
         // == REFACTORED LOGIC FOR HANDLING RADIO/CHECKBOX GROUPS              ==
         // ========================================================================
@@ -91,7 +92,14 @@ const FieldProcessor = {
 
             // --- If any option failed, trigger LLM correction for the whole group --- 
             if (!allSucceeded) {
-                console.error(`[选项组处理] 字段 "${field.question}" 未能成功处理所有选项，将对整个组进行LLM纠错。`);
+                const MAX_CORRECTION_RETRIES = 1; // 设置最大纠错重试次数
+                if (correctionAttempt >= MAX_CORRECTION_RETRIES) {
+                    console.error(`❌ [选项组处理] 字段 "${field.question}" 已达到最大纠错次数，最终失败。`);
+                    this.statusUI.update(`❌ 字段 "${field.question}" 填充失败`);
+                    return; // 停止重试
+                }
+
+                console.error(`[选项组处理] 字段 "${field.question}" 未能成功处理所有选项，将对整个组进行LLM纠错 (尝试 ${correctionAttempt + 1}/${MAX_CORRECTION_RETRIES})。`);
                 this.statusUI.update(`🤔 选项组 "${field.question}" 填充失败，尝试纠错...`);
                 
                 // We pass the original field object, which contains all selectors and options.
@@ -104,9 +112,8 @@ const FieldProcessor = {
                         this.statusUI.update(`✅ 纠错成功，正在重试字段 "${field.question}"...`);
                         console.log("[纠错后重试] 使用LLM修正后的新参数:", correctedField);
                         
-                        // We re-run processSingleField with the corrected data from the LLM.
-                        // The corrected data might be a completely new field structure.
-                        await this.processSingleField(correctedField, correctedField.value || valuesToSelect, profile);
+                        // 使用修正后的数据递归调用，并增加重试计数器
+                        await this.processSingleField(correctedField, correctedField.value || valuesToSelect, profile, correctionAttempt + 1);
 
                     } else {
                         throw new Error("LLM 纠错未能返回有效的修正方案。");
@@ -137,44 +144,78 @@ const FieldProcessor = {
                 console.log(`[歧义处理] 选择器 "${selector}" 匹配到 ${potentialElements.length} 个元素。将通过问题文本 "${question}" 和答案 "${valueToFill}" 进行精确定位。`);
                 
                 const isClickAction = action.toLowerCase().includes('click');
-                const searchText = isClickAction ? valueToFill : question;
-                const searchContext = isClickAction ? '答案' : '问题';
-                console.log(`[歧义处理] 当前操作为 "${action}"，将使用 "${searchContext}" ("${searchText}") 来寻找最佳匹配。`);
-
-                let minDistance = Infinity;
-                let bestElement = null;
-                let bestLabel = '';
                 const normalize = str => (str || '').replace(/\s+/g, '').toLowerCase();
-                const normSearchText = normalize(searchText);
-                
-                for (const el of potentialElements) {
-                    const uniqueElSelector = this.getUniqueSelector(el);
-                    if (this.successfully_filled_fields.has(uniqueElSelector)) {
-                        continue; // Skip already filled elements
-                    }
 
-                    let parent = el.parentElement;
-                    let distance = 1;
-                    let found = false;
-                    let foundLabel = '';
+                if (isClickAction) {
+                    // Click Action: First find the container by question, then the element by answer.
+                    console.log(`[歧义处理] Click操作：将先用问题 "${question}" 定位范围，再用答案 "${valueToFill}" 寻找最佳匹配。`);
+                    const normQuestion = normalize(question);
+                    const normAnswer = normalize(valueToFill);
 
-                    // For click actions, also check the element's own text or value, which is a strong signal.
-                    if (isClickAction) {
-                        const elText = normalize(el.textContent || el.innerText || el.value);
-                        if (elText.includes(normSearchText)) {
-                            found = true;
-                            foundLabel = (el.textContent || el.innerText || el.value).trim();
-                            distance = 0; // Closest possible match
+                    let bestContainer = null;
+                    let minQuestionDistance = Infinity;
+
+                    // Step 1: Find the best container element that is a common ancestor to the potential elements and is close to the question text.
+                    for (const el of potentialElements) {
+                        let parent = el.parentElement;
+                        let distance = 1;
+                        while (parent && distance < 10) {
+                            const parentText = normalize(parent.textContent);
+                            if (parentText.includes(normQuestion)) {
+                                if (distance < minQuestionDistance) {
+                                    minQuestionDistance = distance;
+                                    bestContainer = parent;
+                                }
+                                break; // Found a good enough container for this element
+                            }
+                            parent = parent.parentElement;
+                            distance++;
                         }
                     }
+
+                    if (bestContainer) {
+                        console.log(`[歧义处理] 已根据问题找到最佳容器。现在在容器内根据答案 "${valueToFill}" 寻找目标元素。`);
+                        // Step 2: Inside the best container, find the element that best matches the answer.
+                        const candidatesInContainer = Array.from(bestContainer.querySelectorAll(selector));
+                        let bestElement = null;
+                        let minAnswerDistance = Infinity;
+
+                        for (const el of candidatesInContainer) {
+                            const elText = normalize(el.textContent || el.innerText || el.value);
+                            if (elText.includes(normAnswer)) {
+                                bestElement = el;
+                                minAnswerDistance = 0; // Direct match is the best
+                                break; // Found the best possible match
+                            }
+                        }
+                        elementToProcess = bestElement;
+                    } else {
+                        console.warn(`[歧义处理] 未能根据问题 "${question}" 找到一个清晰的父容器。`);
+                    }
+
+                } else {
+                    // Fill Action: Find the element closest to the question label.
+                    console.log(`[歧义处理] Fill操作：将使用问题 "${question}" 来寻找最佳匹配。`);
+                    let minDistance = Infinity;
+                    let bestElement = null;
+                    let bestLabel = '';
+                    const normQuestion = normalize(question);
                     
-                    // If not found in the element itself, search in nearby parent elements.
-                    if (!found) {
+                    for (const el of potentialElements) {
+                        const uniqueElSelector = this.getUniqueSelector(el);
+                        if (this.successfully_filled_fields.has(uniqueElSelector)) {
+                            continue; // Skip already filled elements
+                        }
+
+                        let parent = el.parentElement;
+                        let distance = 1;
+                        let found = false;
+                        let foundLabel = '';
+                        
                         while (parent && distance < 10) {
                             const labelText = parent.textContent ? parent.textContent.trim() : '';
                             const normLabel = normalize(labelText);
-                            // For clicks, we look for the value text. For fills, we look for the question label.
-                            if (normLabel && (normLabel.includes(normSearchText) || normSearchText.includes(normLabel))) {
+                            if (normLabel && (normLabel.includes(normQuestion) || normQuestion.includes(normLabel))) {
                                 found = true;
                                 foundLabel = labelText;
                                 break;
@@ -182,22 +223,25 @@ const FieldProcessor = {
                             parent = parent.parentElement;
                             distance++;
                         }
-                    }
 
-                    if (found && distance < minDistance) {
-                        minDistance = distance;
-                        bestElement = el;
-                        bestLabel = foundLabel;
+                        if (found && distance < minDistance) {
+                            minDistance = distance;
+                            bestElement = el;
+                            bestLabel = foundLabel;
+                        }
+                    }
+                    elementToProcess = bestElement;
+                    if(bestElement) {
+                         console.log(`[歧义处理] 选择距离问题文本最近的元素 (匹配内容: "${bestLabel}")。`);
                     }
                 }
-                
-                if (bestElement) {
-                    console.log(`[歧义处理] 选择距离 ${searchContext}文本 最近的元素 (匹配内容: "${bestLabel}")。`);
-                    elementToProcess = bestElement;
-                } else {
-                    console.warn(`[歧义处理] 未能根据 "${searchText}" 在多个元素中找到明确的最佳匹配。将默认使用第一个可用的元素。`);
+
+                // Fallback if no element was selected through the logic above
+                if (!elementToProcess) {
+                    console.warn(`[歧义处理] 未能根据上下文找到明确的最佳匹配。将默认使用第一个可用的元素。`);
                     elementToProcess = potentialElements.find(el => !this.successfully_filled_fields.has(this.getUniqueSelector(el))) || null;
                 }
+
             } else if (potentialElements.length === 1) {
                 elementToProcess = potentialElements[0];
             }
@@ -449,8 +493,9 @@ const FieldProcessor = {
             失败的字段信息:
             - 问题: \"${originalField.question}\"
             - 尝试的CSS选择器: \"${originalField.selector}\"
+            - 如果是选择题，所有可选项：\"${originalField.options}\"
             - 字段类型: \"${originalField.action}\"
-            - 期望填充的值: \"${originalField.value || '(无特定值)'}\"
+            - 期望填充/选择的值: \"${originalField.value || '(无特定值)'}\"
 
             这是该字段相关的HTML上下文:
             \`\`\`html
@@ -463,18 +508,20 @@ const FieldProcessor = {
             \`\`\`
 
             请分析HTML并提供一个修正方案。你需要返回一个JSON对象，其中包含修正后的字段信息。
-            - 如果原始选择器是错误的，请提供一个新的、更精确的 \`newSelector\`。
-            - 如果是单选/复选框，确保 \`newSelector\` 定位到与 “期望填充的值” 匹配的那个具体 \`<input>\` 元素。
+            - 如果原始选择器是错误的，请提供新的、更精确的 \`newSelector\` 数组， 确保 \`newSelector\` 与 \`newOptions\` 对齐。
+            - 如果是单选/复选框，确保 \`newSelector\` 定位到与 “期望填充的值” 匹配的具体 \`<input>\` 元素。
+            - 如果 \`options\` 不正确 (例如, 选项组的实际选项与失败的字段信息不同), 请提供 \`newOptions\` 数组, 确保 \`newSelector\` 与 \`newOptions\` 对齐。
             - 如果 \`action\` 不正确 (例如, 应该用 \`click\` 而不是 \`input\`), 请提供 \`newAction\`。
-            - 如果 \`value\` 不正确 (例如, 选项的实际 \`value\` 属性与文本不同), 请提供 \`newValue\`。
+            - 如果 \`value\` 不正确 (例如, 选择题但是不存在所有可选项中), 请提供 \`newValue\` 数组。
             - 如果原始选择器和操作都正确，但依然失败，你可以返回原始值，脚本会重试。
             - 如果你认为这个字段无法被修复或者其实点击/填充成功了，返回 \`{"error": "无法修复的原因"}\`。
 
             返回格式必须是:
             {
-              \"newSelector\": \"<correct_css_selector>\",
+              \"newSelector\": \"[<correct_css_selector>]\",
+              \"newOptions\": \"[<corrected_options>]\",
               \"newAction\": \"<input|click|select>\",
-              \"newValue\": \"<corrected_value>\"
+              \"newValue\": \"[<corrected_value>]\"
             }
         `;
 
@@ -500,6 +547,7 @@ const FieldProcessor = {
                 return {
                     ...originalField,
                     selector: correctedJson.newSelector,
+                    options: correctedJson.newOptions || originalField.options, // The options might also be corrected
                     action: correctedJson.newAction || originalField.action,
                     value: correctedJson.newValue || originalField.value // The value to fill might also be corrected
                 };

@@ -490,7 +490,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // In Manifest V3, we must programmatically inject scripts.
             await chrome.scripting.executeScript({
                 target: { tabId: tab.id },
-                files: ['fieldProcessor.js', 'content.js']
+                files: ['fieldExtractor.js', 'fieldProcessor.js', 'content.js']
             });
 
         // 读取本地和sync，优先用最新
