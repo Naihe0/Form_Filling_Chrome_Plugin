@@ -306,7 +306,7 @@ const FieldProcessor = {
         
         console.error(`常规尝试最终失败: Action '${action}' on '${question}'. 正在调用 LLM 进行纠错...`);
         
-        this.statusUI.update(`🤔 字段 "${question}" 填充失败，尝试纠错...`);
+        this.statusUI.update(`🤔 填充失败，尝试纠错...`);
         const fieldForCorrection = { ...field, selector: selector, value: valueToFill }; // Pass value for context
         try {
             const correctedField = await this.correctFieldWithLLM(fieldForCorrection, lastError, profile);

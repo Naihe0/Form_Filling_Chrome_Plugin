@@ -109,7 +109,8 @@ ${html}
                 console.log("[LLM模式] 字段提取被用户中断。");
                 return [];
             }
-            statusUI.updateBaseMessage(`🔍 正在提取页面字段... (${index + 1}/${chunks.length})`);
+            // Use startTimer to show progress and the running timer
+            statusUI.startTimer(`🔍 正在提取页面字段... (${index + 1}/${chunks.length})`);
 
             console.log(`[LLM模式] 正在处理块 ${index + 1}/${chunks.length}...`);
             const result = await processHtmlChunkWithLLM(chunk, index + 1);
