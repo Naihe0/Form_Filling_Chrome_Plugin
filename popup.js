@@ -1,43 +1,108 @@
 // mem0-upload-toggle 独立持久化
-    const mem0UploadToggle = document.getElementById('mem0-upload-toggle');
-    const mem0EnableToggle = document.getElementById('mem0-enable-toggle');
-    const MEM0_UPLOAD_KEY = 'mem0_upload_enabled';
-    const MEM0_ENABLE_KEY = 'mem0_enable_enabled';
+const mem0UploadToggle = document.getElementById('mem0-upload-toggle');
+const mem0EnableToggle = document.getElementById('mem0-enable-toggle');
+const quickQueryToggle = document.getElementById('quick-query-toggle');
+const MEM0_UPLOAD_KEY = 'mem0_upload_enabled';
+const MEM0_ENABLE_KEY = 'mem0_enable_enabled';
+const QUICK_QUERY_KEY = 'quick_query_enabled';
 
-    // 监听 mem0-upload-toggle
-    if (mem0UploadToggle) {
-        mem0UploadToggle.addEventListener('change', e => {
-            const checked = mem0UploadToggle.checked;
-            chrome.storage.local.set({ [MEM0_UPLOAD_KEY]: checked });
-            chrome.storage.sync.set({ [MEM0_UPLOAD_KEY]: checked });
+// 监听 mem0-upload-toggle
+if (mem0UploadToggle) {
+    mem0UploadToggle.addEventListener('change', e => {
+        const checked = mem0UploadToggle.checked;
+        chrome.storage.local.set({ [MEM0_UPLOAD_KEY]: checked });
+        chrome.storage.sync.set({ [MEM0_UPLOAD_KEY]: checked });
+    });
+    // 初始化
+    chrome.storage.local.get([MEM0_UPLOAD_KEY], localResult => {
+        chrome.storage.sync.get([MEM0_UPLOAD_KEY], syncResult => {
+            let val = false;
+            if (typeof syncResult[MEM0_UPLOAD_KEY] !== 'undefined') val = syncResult[MEM0_UPLOAD_KEY];
+            else if (typeof localResult[MEM0_UPLOAD_KEY] !== 'undefined') val = localResult[MEM0_UPLOAD_KEY];
+            mem0UploadToggle.checked = !!val;
         });
-        // 初始化
-        chrome.storage.local.get([MEM0_UPLOAD_KEY], localResult => {
-            chrome.storage.sync.get([MEM0_UPLOAD_KEY], syncResult => {
-                let val = false;
-                if (typeof syncResult[MEM0_UPLOAD_KEY] !== 'undefined') val = syncResult[MEM0_UPLOAD_KEY];
-                else if (typeof localResult[MEM0_UPLOAD_KEY] !== 'undefined') val = localResult[MEM0_UPLOAD_KEY];
-                mem0UploadToggle.checked = !!val;
+    });
+}
+// 监听 mem0-enable-toggle
+if (mem0EnableToggle) {
+    mem0EnableToggle.addEventListener('change', e => {
+        const checked = mem0EnableToggle.checked;
+        chrome.storage.local.set({ [MEM0_ENABLE_KEY]: checked });
+        chrome.storage.sync.set({ [MEM0_ENABLE_KEY]: checked });
+    });
+    // 初始化
+    chrome.storage.local.get([MEM0_ENABLE_KEY], localResult => {
+        chrome.storage.sync.get([MEM0_ENABLE_KEY], syncResult => {
+            let val = false;
+            if (typeof syncResult[MEM0_ENABLE_KEY] !== 'undefined') val = syncResult[MEM0_ENABLE_KEY];
+            else if (typeof localResult[MEM0_ENABLE_KEY] !== 'undefined') val = localResult[MEM0_ENABLE_KEY];
+            mem0EnableToggle.checked = !!val;
+        });
+    });
+}
+// 监听 quick-query-toggle
+if (quickQueryToggle) {
+    quickQueryToggle.addEventListener('change', async e => {
+        const checked = quickQueryToggle.checked;
+        chrome.storage.local.set({ [QUICK_QUERY_KEY]: checked });
+        chrome.storage.sync.set({ [QUICK_QUERY_KEY]: checked });
+
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!tab) return;
+
+            // 注入必要的脚本
+            await chrome.scripting.executeScript({
+                target: { tabId: tab.id },
+                files: ['fieldExtractor.js', 'fieldProcessor.js', 'content.js']
             });
+
+            if (checked) {
+                const local = await new Promise(res => chrome.storage.local.get(['userProfile', 'selectedModel', 'userProfile_ts', 'apiKey'], res));
+                const sync = await new Promise(res => chrome.storage.sync.get(['userProfile', 'selectedModel', 'userProfile_ts', 'apiKey'], res));
+
+                let userProfile = (sync.userProfile_ts || 0) > (local.userProfile_ts || 0) ? sync.userProfile : local.userProfile;
+                let selectedModel = sync.selectedModel || local.selectedModel;
+                let apiKey = sync.apiKey || local.apiKey;
+
+                if (!userProfile || !apiKey) {
+                    showStatus('使用快捷问询前，请先设置用户画像和API Key。', true);
+                    quickQueryToggle.checked = false;
+                    chrome.storage.local.set({ [QUICK_QUERY_KEY]: false });
+                    chrome.storage.sync.set({ [QUICK_QUERY_KEY]: false });
+                    return;
+                }
+
+                chrome.tabs.sendMessage(tab.id, {
+                    type: 'toggle-quick-query',
+                    payload: {
+                        enabled: true,
+                        profile: userProfile,
+                        model: selectedModel || 'gpt-4.1'
+                    }
+                });
+            } else {
+                chrome.tabs.sendMessage(tab.id, {
+                    type: 'toggle-quick-query',
+                    payload: { enabled: false }
+                });
+            }
+        } catch (error) {
+            console.error("快捷问询切换失败:", error);
+            showStatus(`快捷问询切换失败: ${error.message}`, true);
+        }
+    });
+    // 初始化
+    chrome.storage.local.get([QUICK_QUERY_KEY], localResult => {
+        chrome.storage.sync.get([QUICK_QUERY_KEY], syncResult => {
+            let val = false;
+            if (typeof syncResult[QUICK_QUERY_KEY] !== 'undefined') val = syncResult[QUICK_QUERY_KEY];
+            else if (typeof localResult[QUICK_QUERY_KEY] !== 'undefined') val = localResult[QUICK_QUERY_KEY];
+            quickQueryToggle.checked = !!val;
         });
-    }
-    // 监听 mem0-enable-toggle
-    if (mem0EnableToggle) {
-        mem0EnableToggle.addEventListener('change', e => {
-            const checked = mem0EnableToggle.checked;
-            chrome.storage.local.set({ [MEM0_ENABLE_KEY]: checked });
-            chrome.storage.sync.set({ [MEM0_ENABLE_KEY]: checked });
-        });
-        // 初始化
-        chrome.storage.local.get([MEM0_ENABLE_KEY], localResult => {
-            chrome.storage.sync.get([MEM0_ENABLE_KEY], syncResult => {
-                let val = false;
-                if (typeof syncResult[MEM0_ENABLE_KEY] !== 'undefined') val = syncResult[MEM0_ENABLE_KEY];
-                else if (typeof localResult[MEM0_ENABLE_KEY] !== 'undefined') val = localResult[MEM0_ENABLE_KEY];
-                mem0EnableToggle.checked = !!val;
-            });
-        });
-    }
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     // --- Element References ---
     // Views
@@ -99,7 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     const userProfileInput = document.getElementById('userProfileInput');
     const saveProfileButton = document.getElementById('saveProfileButton');
-    
+
     // FILL View elements
     const apiKeyInput = document.getElementById('apiKey');
     const modelSelect = document.getElementById('model-select');
@@ -108,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Top buttons
     const addButton = document.getElementById('addButton');
     const fillButton = document.getElementById('fillButton');
-    
+
     // Other elements
     const stopFillingButton = document.getElementById('stopFillingButton');
     const statusDiv = document.getElementById('status');
@@ -141,7 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 mem0AppId = draft.mem0AppId || mem0AppId;
                 mem0OrgId = draft.mem0OrgId || mem0OrgId;
                 mem0ProjectId = draft.mem0ProjectId || mem0ProjectId;
-                
+
                 // 如果已存在弹窗，则不再创建
                 if (document.getElementById('mem0-param-modal')) return;
 
@@ -151,9 +216,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         <h3 style="margin-bottom:12px;">填写 mem0 参数</h3>
                         <div style="display:flex;flex-direction:column;gap:8px;">
                           <input id="mem0ApiKeyInput" placeholder="API Key" value="${mem0ApiKey}" style="padding:6px;" />
-                          <input id="mem0AgentIdInput" placeholder="Agent ID" value="${mem0AgentId||'form_filler_agent'}" style="padding:6px;" />
-                          <input id="mem0UserIdInput" placeholder="User ID" value="${mem0UserId||'form_filler_test_user'}" style="padding:6px;" />
-                          <input id="mem0AppIdInput" placeholder="App ID" value="${mem0AppId||'form_filling_tool'}" style="padding:6px;" />
+                          <input id="mem0AgentIdInput" placeholder="Agent ID" value="${mem0AgentId || 'form_filler_agent'}" style="padding:6px;" />
+                          <input id="mem0UserIdInput" placeholder="User ID" value="${mem0UserId || 'form_filler_test_user'}" style="padding:6px;" />
+                          <input id="mem0AppIdInput" placeholder="App ID" value="${mem0AppId || 'form_filling_tool'}" style="padding:6px;" />
                           <input id="mem0OrgIdInput" placeholder="Org ID" value="${mem0OrgId}" style="padding:6px;" />
                           <input id="mem0ProjectIdInput" placeholder="Project ID" value="${mem0ProjectId}" style="padding:6px;" />
                         </div>
@@ -167,7 +232,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.body.appendChild(modal);
 
                 const inputIds = [
-                    'mem0ApiKeyInput','mem0AgentIdInput','mem0UserIdInput','mem0AppIdInput','mem0OrgIdInput','mem0ProjectIdInput'
+                    'mem0ApiKeyInput', 'mem0AgentIdInput', 'mem0UserIdInput', 'mem0AppIdInput', 'mem0OrgIdInput', 'mem0ProjectIdInput'
                 ];
                 inputIds.forEach(id => {
                     const input = document.getElementById(id);
@@ -245,27 +310,27 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {boolean} isError - If true, formats as an error.
      */
     function showStatus(message, isError = false) {
-    // 在状态栏下方显示“修改mem0参数”按钮（仅mem0相关错误时）
-    if (message && /mem0/.test(message)) {
-        let editBtn = document.getElementById('edit-mem0-param-btn');
-        if (!editBtn) {
-            editBtn = document.createElement('button');
-            editBtn.id = 'edit-mem0-param-btn';
-            editBtn.textContent = '修改 mem0 参数';
-            editBtn.style.marginTop = '8px';
-            editBtn.style.background = '#f3f4f6';
-            editBtn.style.border = '1px solid #d1d5db';
-            editBtn.style.color = '#374151';
-            editBtn.style.padding = '4px 12px';
-            editBtn.style.borderRadius = '6px';
-            editBtn.style.cursor = 'pointer';
-            editBtn.onclick = openMem0ParamModal;
-            statusDiv.parentNode.insertBefore(editBtn, statusDiv.nextSibling);
+        // 在状态栏下方显示“修改mem0参数”按钮（仅mem0相关错误时）
+        if (message && /mem0/.test(message)) {
+            let editBtn = document.getElementById('edit-mem0-param-btn');
+            if (!editBtn) {
+                editBtn = document.createElement('button');
+                editBtn.id = 'edit-mem0-param-btn';
+                editBtn.textContent = '修改 mem0 参数';
+                editBtn.style.marginTop = '8px';
+                editBtn.style.background = '#f3f4f6';
+                editBtn.style.border = '1px solid #d1d5db';
+                editBtn.style.color = '#374151';
+                editBtn.style.padding = '4px 12px';
+                editBtn.style.borderRadius = '6px';
+                editBtn.style.cursor = 'pointer';
+                editBtn.onclick = openMem0ParamModal;
+                statusDiv.parentNode.insertBefore(editBtn, statusDiv.nextSibling);
+            }
+        } else {
+            const btn = document.getElementById('edit-mem0-param-btn');
+            if (btn) btn.remove();
         }
-    } else {
-        const btn = document.getElementById('edit-mem0-param-btn');
-        if (btn) btn.remove();
-    }
         statusDiv.textContent = message;
         statusDiv.style.color = isError ? '#b91c1c' : '#4b5563';
         setTimeout(() => statusDiv.textContent = '', 3000);
@@ -279,7 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
         addView.classList.add('hidden');
         fillView.classList.add('hidden');
         fillingView.classList.add('hidden');
-        
+
         // Show/hide top buttons based on filling state
         topButtonContainer.style.display = isFilling ? 'none' : 'flex';
 
@@ -297,7 +362,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     }
-    
+
     /**
      * Saves the user profile from the input field to storage.
      */
@@ -345,7 +410,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (mem0UploadToggle && mem0UploadToggle.checked) {
             const uploadToMem0 = (params) => {
                 const body = {
-                    messages: [ { role: 'user', content: userProfile } ],
+                    messages: [{ role: 'user', content: userProfile }],
                     agent_id: params.mem0AgentId,
                     user_id: params.mem0UserId,
                     app_id: params.mem0AppId,
@@ -393,7 +458,7 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function saveApiKey() {
         const apiKey = apiKeyInput.value.trim();
-         if (!apiKey) {
+        if (!apiKey) {
             showStatus('Please enter your API key.', true);
             return false;
         }
@@ -454,20 +519,20 @@ document.addEventListener('DOMContentLoaded', () => {
         currentView = 'add';
         updateUI();
     });
-    
+
     // Switch to FILL view
     fillButton.addEventListener('click', () => {
         if (isFilling) return;
         currentView = 'fill';
         updateUI();
     });
-    
+
     // Save Profile button
     saveProfileButton.addEventListener('click', saveProfile);
 
     // Save model on change
     modelSelect.addEventListener('change', saveModel);
-    
+
     // Start Filling button
     startFillingButton.addEventListener('click', async () => {
         // Save the API key and check if it's valid before starting
@@ -493,55 +558,55 @@ document.addEventListener('DOMContentLoaded', () => {
                 files: ['fieldExtractor.js', 'fieldProcessor.js', 'content.js']
             });
 
-        // 读取本地和sync，优先用最新
-        const local = await new Promise(res => chrome.storage.local.get(['userProfile', 'selectedModel', 'userProfile_ts'], res));
-        const sync = await new Promise(res => chrome.storage.sync.get(['userProfile', 'selectedModel', 'userProfile_ts'], res));
-        let localTs = local.userProfile_ts || 0;
-        let syncTs = sync.userProfile_ts || 0;
-        let userProfile = '';
-        if (syncTs > localTs) userProfile = sync.userProfile;
-        else userProfile = local.userProfile;
-        let selectedModel = sync.selectedModel || local.selectedModel;
+            // 读取本地和sync，优先用最新
+            const local = await new Promise(res => chrome.storage.local.get(['userProfile', 'selectedModel', 'userProfile_ts'], res));
+            const sync = await new Promise(res => chrome.storage.sync.get(['userProfile', 'selectedModel', 'userProfile_ts'], res));
+            let localTs = local.userProfile_ts || 0;
+            let syncTs = sync.userProfile_ts || 0;
+            let userProfile = '';
+            if (syncTs > localTs) userProfile = sync.userProfile;
+            else userProfile = local.userProfile;
+            let selectedModel = sync.selectedModel || local.selectedModel;
 
-        if (!userProfile) {
-            showStatus('请先在 ADD 视图中添加并保存您的用户画像。', true);
-            isFilling = false;
-            chrome.storage.local.set({ isFilling: false });
-            chrome.storage.sync.set({ isFilling: false });
-            updateUI();
-            return;
-        }
-
-        // 获取并发送消息
-        (async () => {
-            const mem0Enable = mem0EnableToggle && mem0EnableToggle.checked;
-            let mem0Params = {};
-
-            if (mem0Enable) {
-                try {
-                    mem0Params = await getMem0Parameters();
-                } catch (error) {
-                    showStatus(error.message + '，请填写。', true);
-                    openMem0ParamModal(); // 仅弹窗提示，不执行后续操作
-                    // 中断填充流程
-                    isFilling = false;
-                    chrome.storage.local.set({ isFilling: false });
-                    chrome.storage.sync.set({ isFilling: false });
-                    updateUI();
-                    return;
-                }
+            if (!userProfile) {
+                showStatus('请先在 ADD 视图中添加并保存您的用户画像。', true);
+                isFilling = false;
+                chrome.storage.local.set({ isFilling: false });
+                chrome.storage.sync.set({ isFilling: false });
+                updateUI();
+                return;
             }
 
-            chrome.tabs.sendMessage(tab.id, {
-                type: 'start-filling',
-                payload: {
-                    profile: userProfile,
-                    model: selectedModel || 'gpt-4.1',
-                    mem0Enable,
-                    ...mem0Params
+            // 获取并发送消息
+            (async () => {
+                const mem0Enable = mem0EnableToggle && mem0EnableToggle.checked;
+                let mem0Params = {};
+
+                if (mem0Enable) {
+                    try {
+                        mem0Params = await getMem0Parameters();
+                    } catch (error) {
+                        showStatus(error.message + '，请填写。', true);
+                        openMem0ParamModal(); // 仅弹窗提示，不执行后续操作
+                        // 中断填充流程
+                        isFilling = false;
+                        chrome.storage.local.set({ isFilling: false });
+                        chrome.storage.sync.set({ isFilling: false });
+                        updateUI();
+                        return;
+                    }
                 }
-            });
-        })();
+
+                chrome.tabs.sendMessage(tab.id, {
+                    type: 'start-filling',
+                    payload: {
+                        profile: userProfile,
+                        model: selectedModel || 'gpt-4.1',
+                        mem0Enable,
+                        ...mem0Params
+                    }
+                });
+            })();
 
         } catch (e) {
             console.error("Error starting fill process:", e);
@@ -552,7 +617,7 @@ document.addEventListener('DOMContentLoaded', () => {
             updateUI();
         }
     });
-    
+
     // Stop Filling button
     stopFillingButton.addEventListener('click', async () => {
         isFilling = false;
@@ -567,7 +632,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 chrome.tabs.sendMessage(tab.id, { type: 'stop-filling' });
                 showStatus('已发送停止指令。');
             }
-        } catch(e) {
+        } catch (e) {
             console.error("发送停止指令失败:", e);
             showStatus(`停止时出错: ${e.message}`, true);
         }

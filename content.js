@@ -1,4 +1,4 @@
-(async function() {
+(async function () {
     /**
      * 拉取mem0平台的用户画像
      * @param {Object} options
@@ -43,13 +43,13 @@
     }
     // ===== end mem0_profile.js 逻辑 =====
 
-    console.log("智能表单填充助手：内容脚本已加载。" );
+    console.log("智能表单填充助手：内容脚本已加载。");
 
     // --- Helper function to communicate with background script ---
     async function askLLM(prompt, model = 'gpt-4.1') {
         const { apiKey } = await chrome.storage.local.get('apiKey');
         if (!apiKey) {
-            alert("请先在插件弹窗中设置您的 OpenAI API Key。" );
+            alert("请先在插件弹窗中设置您的 OpenAI API Key。");
             throw new Error("API Key not found.");
         }
 
@@ -75,7 +75,7 @@
             );
         });
 
-        const timeoutPromise = new Promise((_, reject) => 
+        const timeoutPromise = new Promise((_, reject) =>
             setTimeout(() => reject(new Error('LLM request timed out after 90 seconds.')), 90000) // 90-second timeout
         );
 
@@ -89,16 +89,29 @@
         constructor() {
             this.overlay = null;
             this.statusTextElement = null;
-            this.timerInterval = null; // To hold the interval ID
-            this.startTime = null; // To hold the start time
-            this.baseMessage = ''; // To hold the base message for the timer
+            this.timerInterval = null; // UNIFIED: To hold the interval ID for all timers
+            this.hideTimeout = null;   // To hold the auto-hide timeout ID
+            console.log("StatusUI: New instance created.");
             this.init();
         }
 
         init() {
-            // Avoid creating multiple overlays
-            if (document.getElementById('form-filler-overlay')) return;
+            const existingOverlay = document.getElementById('form-filler-overlay');
+            console.log(`StatusUI init: existingOverlay found? ${!!existingOverlay}`);
 
+            if (existingOverlay) {
+                this.overlay = existingOverlay;
+                this.statusTextElement = this.overlay.querySelector('span'); 
+                if (!this.statusTextElement) {
+                    console.error("StatusUI Error: Overlay exists, but status text element not found within it.");
+                    this.statusTextElement = document.createElement('span');
+                    this.overlay.appendChild(this.statusTextElement);
+                }
+                console.log("StatusUI init: Re-using existing overlay.");
+                return;
+            }
+
+            console.log("StatusUI init: Creating new overlay.");
             this.overlay = document.createElement('div');
             this.overlay.id = 'form-filler-overlay';
             Object.assign(this.overlay.style, {
@@ -128,35 +141,48 @@
         }
 
         update(message) {
+            this.stopTimer(); // Stop any running timer when a new static message is set.
             if (!this.overlay || this.overlay.style.opacity === '0') {
                 this.init();
+            }
+            if (!this.statusTextElement) {
+                console.error("StatusUI Error: statusTextElement is null in update(). This should not happen.");
+                this.init(); 
+                if (!this.statusTextElement) return; // If still null, abort.
             }
             this.statusTextElement.textContent = message;
             console.log("Status Update:", message);
         }
 
-        updateBaseMessage(newBaseMessage) {
-            this.baseMessage = newBaseMessage;
-        }
-
         startTimer(baseMessage) {
             this.stopTimer(); // Ensure no other timer is running
-            this.startTime = Date.now();
-            this.baseMessage = baseMessage;
+            const startTime = Date.now();
+            
             const updateWithTime = () => {
-                const elapsedTime = Math.round((Date.now() - this.startTime) / 1000);
-                this.update(`${this.baseMessage} (${elapsedTime}s)`);
+                const elapsedTime = Math.round((Date.now() - startTime) / 1000);
+                const timedMessage = `${baseMessage} (${elapsedTime}s)`;
+                // Directly update text content to avoid calling `update()` and causing recursion
+                if (!this.statusTextElement) {
+                    this.init();
+                    if (!this.statusTextElement) return; // Guard against init failure
+                }
+                this.statusTextElement.textContent = timedMessage;
+                console.log("Status Update:", timedMessage);
             };
+            
             updateWithTime(); // Initial update
-            this.timerInterval = setInterval(updateWithTime, 1000); // Update every second
+            this.timerInterval = setInterval(updateWithTime, 1000);
         }
 
         stopTimer() {
+            console.log('StatusUI: Stopping timer', this.timerInterval);
             if (this.timerInterval) {
                 clearInterval(this.timerInterval);
                 this.timerInterval = null;
-                this.startTime = null;
-                this.baseMessage = '';
+            }
+            if (this.hideTimeout) {
+                clearTimeout(this.hideTimeout);
+                this.hideTimeout = null;
             }
         }
 
@@ -263,13 +289,13 @@
                 }
 
                 let page_has_changed = true;
-                while(page_has_changed) {
+                while (page_has_changed) {
                     if (this.isStopped) {
                         console.log("填充任务已被用户中断。");
                         break;
                     }
                     console.log("开始新一轮的字段提取与填充...");
-                    
+
                     // Start timer and show initial message
                     this.statusUI.startTimer("🔍 正在提取页面字段...");
                     const all_fields_on_page = await FieldExtractor.extractFields();
@@ -281,7 +307,7 @@
                         console.log("当前页面未找到可填充字段。");
                         this.statusUI.update("🤔 未找到可填充字段。");
                     } else {
-                        const fields_to_fill = all_fields_on_page.filter(f => 
+                        const fields_to_fill = all_fields_on_page.filter(f =>
                             !this.successfully_filled_fields.has(f.selector)
                         );
 
@@ -296,7 +322,7 @@
                             let filledCount = 0;
                             for (const field of fields_with_values) {
                                 if (this.isStopped) break;
-                                
+
                                 // Check if the LLM provided a value for this field
                                 if (field.value !== undefined && field.value !== null) {
                                     filledCount++;
@@ -310,14 +336,14 @@
                             this.statusUI.update("👍 所有字段均已填充。");
                         }
                     }
-                    
+
                     if (this.isStopped) break;
-                    
+
                     // page_has_changed = await this.navigateToNextPage();
                     console.log("单页填充模式：已完成当前页面，程序将终止。");
                     page_has_changed = false; // 在填充完一页后终止
                 }
-                
+
                 if (this.isStopped) {
                     // alert("表单填充已由用户手动中断。"); // Alert is handled by popup
                     this.statusUI.update("🛑 填充已中断。");
@@ -327,8 +353,8 @@
                 }
             } catch (e) {
                 console.error("表单填充过程中发生未捕获的错误:", e);
-                alert("表单填充过程中发生错误，请查看控制台日志。" );
-                this.statusUI.update("❌ 发生错误，请查看控制台。" );
+                alert("表单填充过程中发生错误，请查看控制台日志。");
+                this.statusUI.update("❌ 发生错误，请查看控制台。");
             } finally {
                 // 确保无论成功、失败还是中断，都重置UI状态
                 chrome.storage.local.set({ isFilling: false });
@@ -339,6 +365,156 @@
         }
 
         // All field extraction and value-adding logic has been moved to fieldExtractor.js
+    }
+
+    // ========================================================================
+    // == QUICK QUERY LOGIC                                                ==
+    // ========================================================================
+    class QuickQueryHandler {
+        constructor(options) {
+            this.userProfile = options.userProfile;
+            this.model = options.model;
+            this.askLLM = options.askLLM;
+            this.statusUI = options.statusUI;
+
+            this.lastBacktickTime = 0;
+            this.backtickClickCount = 0;
+            this.tripleClickThreshold = 500; // ms
+
+            this.handleKeyDown = this.handleKeyDown.bind(this);
+        }
+
+        start() {
+            document.addEventListener('keydown', this.handleKeyDown);
+            console.log("快捷问询功能已启动。");
+        }
+
+        stop() {
+            document.removeEventListener('keydown', this.handleKeyDown);
+            console.log("快捷问询功能已停止。");
+        }
+
+        async handleKeyDown(event) {
+            // 在中文输入法下，反引号键可能会被识别为'·'，所以同时判断
+            if (event.key === '`' || event.key === '·') {
+                const now = Date.now();
+                if (now - this.lastBacktickTime < this.tripleClickThreshold) {
+                    this.backtickClickCount++;
+                } else {
+                    this.backtickClickCount = 1;
+                }
+                this.lastBacktickTime = now;
+
+                if (this.backtickClickCount === 3) {
+                    this.backtickClickCount = 0; // Reset counter
+                    // 使用setTimeout确保在按键事件（将字符输入文本框）之后执行
+                    setTimeout(() => this.triggerQuickQuery(), 0);
+                }
+            }
+        }
+
+        async triggerQuickQuery() {
+            const activeElement = document.activeElement;
+            if (!activeElement) return;
+
+            const isTextInput = activeElement.tagName === 'INPUT' && (activeElement.type === 'text' || activeElement.type === 'password' || activeElement.type === 'email' || activeElement.type === 'search' || activeElement.type === 'tel' || activeElement.type === 'url');
+            const isTextArea = activeElement.tagName === 'TEXTAREA';
+
+            if (isTextInput || isTextArea) {
+                // 移除触发事件的三个反引号
+                if (activeElement.value.endsWith('```') || activeElement.value.endsWith('···')) {
+                    activeElement.value = activeElement.value.slice(0, -3);
+                }
+                const currentValue = activeElement.value;
+
+                console.log(`快捷问询已触发，当前输入内容: "${currentValue}"`);
+                this.statusUI.startTimer("🚀 正在为您生成内容...");
+    
+                try {
+                    const prompt = this.constructPrompt(currentValue);
+                    console.log("QuickQuery Prompt:", prompt);
+                    const response = await this.askLLM(prompt, this.model);
+                    console.log("QuickQuery Response:", response);
+                    
+                    let resultText = '';
+                    if (typeof response === 'string') {
+                        resultText = response;
+                    } else if (typeof response === 'object' && response.answer) {
+                        resultText = response.answer;
+                    } else {
+                        throw new Error("LLM 返回了未知格式的数据。");
+                    }
+
+                    // 将生成的内容追加到用户输入之后
+                    activeElement.value = currentValue + resultText;
+
+                    this.statusUI.update("✅ 内容已生成并填充！");
+                } catch (error) {
+                    console.error("快捷问询失败:", error);
+                    this.statusUI.update(`❌ 快捷问询失败: ${error.message}`);
+                } finally {
+                    setTimeout(() => this.statusUI.remove(), 3000);
+                }
+            }
+        }
+
+        constructPrompt(inputValue) {
+            return `
+            您是一个帮助用户填写表单的AI助手。
+            用户的个人信息（用户画像）如下:
+            ---
+            ${this.userProfile}
+            ---
+
+            用户当前正在一个表单字段中，并输入了以下内容:
+            ---
+            ${inputValue}
+            ---
+
+            请根据用户的个人信息和已有输入，生成一个合适内容，用于填入该表单字段。
+            请直接返回最终的文本结果，不要包含任何额外的解释或标记。
+            `;
+        }
+    }
+
+    // --- SCRIPT INITIALIZATION ---
+    async function initializeQuickQueryOnLoad() {
+        console.log("初始化快捷问询功能...");
+        try {
+            const local = await new Promise(res => chrome.storage.local.get(['quick_query_enabled', 'userProfile', 'selectedModel', 'apiKey', 'userProfile_ts'], res));
+            const sync = await new Promise(res => chrome.storage.sync.get(['quick_query_enabled', 'userProfile', 'selectedModel', 'apiKey', 'userProfile_ts'], res));
+
+            // Prioritize sync over local for the enabled flag
+            const isEnabled = typeof sync.quick_query_enabled !== 'undefined' ? sync.quick_query_enabled : local.quick_query_enabled;
+            console.log("初始化快捷问询功能，当前状态:", isEnabled ? "启用" : "禁用");
+            if (isEnabled) {
+                console.log("快捷问询功能已启用，页面加载时自动激活。");
+
+                let userProfile = (sync.userProfile_ts || 0) > (local.userProfile_ts || 0) ? sync.userProfile : local.userProfile;
+                let selectedModel = sync.selectedModel || local.selectedModel;
+                let apiKey = sync.apiKey || local.apiKey;
+
+                if (!userProfile || !apiKey) {
+                    console.warn("快捷问询自动激活失败：未找到用户画像或API Key。请在插件弹窗中设置。");
+                    return;
+                }
+
+                // Ensure no existing handler is running before starting a new one
+                if (window.quickQueryHandler) {
+                    window.quickQueryHandler.stop();
+                }
+                
+                window.quickQueryHandler = new QuickQueryHandler({
+                    userProfile: userProfile,
+                    model: selectedModel || 'gpt-4.1',
+                    askLLM: askLLM,
+                    statusUI: new StatusUI()
+                });
+                window.quickQueryHandler.start();
+            }
+        } catch (error) {
+            console.error("初始化快捷问询功能时出错:", error);
+        }
     }
 
     // Listen for messages from the background script
@@ -357,9 +533,31 @@
                 window.formFillerAgent.isStopped = true;
                 console.log("中断信号已接收。将在当前步骤完成后停止。");
             }
+        } else if (request.type === 'toggle-quick-query') {
+            const { enabled, profile, model } = request.payload;
+            if (enabled) {
+                if (window.quickQueryHandler) {
+                    window.quickQueryHandler.stop();
+                }
+                window.quickQueryHandler = new QuickQueryHandler({
+                    userProfile: profile,
+                    model: model,
+                    askLLM: askLLM,
+                    statusUI: new StatusUI()
+                });
+                window.quickQueryHandler.start();
+            } else {
+                if (window.quickQueryHandler) {
+                    window.quickQueryHandler.stop();
+                    window.quickQueryHandler = null;
+                }
+            }
         }
         return true; // Keep the message channel open for async response
     });
+
+    // Run initialization when the script loads
+    initializeQuickQueryOnLoad();
 
     // const agent = new FormFillerAgent(); // Agent is now created on demand
 })();
