@@ -22,7 +22,12 @@ async function callOpenAI(prompt, apiKey, model) {
     if (model.startsWith('deepseek')) {
         API_URL = 'https://api.deepseek.com/v1/chat/completions';
         apiName = 'DeepSeek';
-    } else {
+    } 
+    else if (model.startsWith('qwen')) {
+        API_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+        apiName = 'Qwen';
+    } 
+    else {
         API_URL = 'https://api.openai.com/v1/chat/completions';
     }
 
