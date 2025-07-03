@@ -100,7 +100,7 @@ const FieldProcessor = {
                 }
 
                 console.error(`[选项组处理] 字段 "${field.question}" 未能成功处理所有选项，将对整个组进行LLM纠错 (尝试 ${correctionAttempt + 1}/${MAX_CORRECTION_RETRIES})。`);
-                this.statusUI.update(`🤔 选项组 "${field.question}" 填充失败，尝试纠错...`);
+                this.statusUI.update(`🤔 选项组填充失败，尝试纠错...`);
                 
                 // We pass the original field object, which contains all selectors and options.
                 const fieldForCorrection = { ...field, value: valuesToSelect }; 
@@ -532,6 +532,7 @@ const FieldProcessor = {
 
             // The askLLM function in content.js already parses the JSON string.
             // We receive an object here, so no need to parse it again.
+            console.log("[纠错模式] Prompt内容:", prompt); // Log the prompt for debugging
             const correctedJson = await Promise.race([
                 this.askLLM(prompt, this.selectedModel),
                 timeoutPromise
