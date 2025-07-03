@@ -348,7 +348,7 @@
                     // alert("表单填充已由用户手动中断。"); // Alert is handled by popup
                     this.statusUI.update("🛑 填充已中断。");
                 } else {
-                    alert("表单填充完成！");
+                    alert("表单填充完成！\n\n请仔细检查所有表单内容，LLM自动填写结果可能存在误差或不符合实际需求。请务必确认无误后再提交表单。");
                     this.statusUI.update("✅ 表单填充完成！");
                 }
             } catch (e) {
@@ -375,7 +375,7 @@
             this.userProfile = options.userProfile;
             this.model = options.model;
             this.askLLM = options.askLLM;
-            this.statusUI = options.statusUI;
+            this.statusUI = null; // 仅在需要时创建
 
             this.lastBacktickTime = 0;
             this.backtickClickCount = 0;
@@ -428,6 +428,7 @@
                 const currentValue = activeElement.value;
 
                 console.log(`快捷问询已触发，当前输入内容: "${currentValue}"`);
+                this.statusUI = new StatusUI(); // 在此处创建UI实例
                 this.statusUI.startTimer("🚀 正在为您生成内容...");
     
                 try {
@@ -453,7 +454,13 @@
                     console.error("快捷问询失败:", error);
                     this.statusUI.update(`❌ 快捷问询失败: ${error.message}`);
                 } finally {
-                    setTimeout(() => this.statusUI.remove(), 3000);
+                    // 确保UI被移除
+                    if (this.statusUI) {
+                        setTimeout(() => {
+                            this.statusUI.remove();
+                            this.statusUI = null; // 清理实例
+                        }, 3000);
+                    }
                 }
             }
         }
@@ -507,8 +514,8 @@
                 window.quickQueryHandler = new QuickQueryHandler({
                     userProfile: userProfile,
                     model: selectedModel || 'gpt-4.1',
-                    askLLM: askLLM,
-                    statusUI: new StatusUI()
+                    askLLM: askLLM
+                    // statusUI: new StatusUI() //不再预先创建
                 });
                 window.quickQueryHandler.start();
             }
@@ -542,8 +549,8 @@
                 window.quickQueryHandler = new QuickQueryHandler({
                     userProfile: profile,
                     model: model,
-                    askLLM: askLLM,
-                    statusUI: new StatusUI()
+                    askLLM: askLLM
+                    // statusUI: new StatusUI() //不再预先创建
                 });
                 window.quickQueryHandler.start();
             } else {
