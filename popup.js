@@ -2,9 +2,12 @@
 const mem0UploadToggle = document.getElementById('mem0-upload-toggle');
 const mem0EnableToggle = document.getElementById('mem0-enable-toggle');
 const quickQueryToggle = document.getElementById('quick-query-toggle');
+const correctionToggle = document.getElementById('reasoning-correction-toggle');
 const MEM0_UPLOAD_KEY = 'mem0_upload_enabled';
 const MEM0_ENABLE_KEY = 'mem0_enable_enabled';
 const QUICK_QUERY_KEY = 'quick_query_enabled';
+const CORRECTION_KEY = 'correction_enabled';
+const CORRECTION_TS_KEY = 'correction_enabled_ts'; // Timestamp key
 
 // 监听 mem0-upload-toggle
 if (mem0UploadToggle) {
@@ -92,13 +95,30 @@ if (quickQueryToggle) {
             showStatus(`快捷问询切换失败: ${error.message}`, true);
         }
     });
-    // 初始化
-    chrome.storage.local.get([QUICK_QUERY_KEY], localResult => {
-        chrome.storage.sync.get([QUICK_QUERY_KEY], syncResult => {
+}
+
+// 监听 correction-toggle
+if (correctionToggle) {
+    correctionToggle.addEventListener('change', e => {
+        const checked = correctionToggle.checked;
+        const ts = Date.now();
+        console.log(`[popup.js] 'correction-toggle' changed. New state: ${checked}. Saving to storage with timestamp ${ts}.`);
+        chrome.storage.local.set({ [CORRECTION_KEY]: checked, [CORRECTION_TS_KEY]: ts });
+        chrome.storage.sync.set({ [CORRECTION_KEY]: checked, [CORRECTION_TS_KEY]: ts });
+    });
+    // Duplicating the initialization from loadSettings here to avoid race conditions on popup open
+    chrome.storage.local.get([CORRECTION_KEY, CORRECTION_TS_KEY], localResult => {
+        chrome.storage.sync.get([CORRECTION_KEY, CORRECTION_TS_KEY], syncResult => {
+            const localTs = localResult[CORRECTION_TS_KEY] || 0;
+            const syncTs = syncResult[CORRECTION_TS_KEY] || 0;
             let val = false;
-            if (typeof syncResult[QUICK_QUERY_KEY] !== 'undefined') val = syncResult[QUICK_QUERY_KEY];
-            else if (typeof localResult[QUICK_QUERY_KEY] !== 'undefined') val = localResult[QUICK_QUERY_KEY];
-            quickQueryToggle.checked = !!val;
+            if (syncTs > localTs) {
+                val = syncResult[CORRECTION_KEY];
+            } else {
+                val = localResult[CORRECTION_KEY];
+            }
+            console.log(`[popup.js] Initializing 'correction-toggle' state from storage. Newest value is ${val} (syncTs: ${syncTs}, localTs: ${localTs})`);
+            correctionToggle.checked = !!val;
         });
     });
 }
@@ -480,23 +500,35 @@ document.addEventListener('DOMContentLoaded', () => {
      * Loads all settings from chrome.storage when the popup opens.
      */
     function loadSettings() {
+        const ALL_KEYS = [
+            'apiKey', 'userProfile', 'selectedModel', 'isFilling', 'userProfile_ts',
+            MEM0_UPLOAD_KEY, MEM0_ENABLE_KEY, QUICK_QUERY_KEY, CORRECTION_KEY, CORRECTION_TS_KEY
+        ];
+        console.log('[popup.js] loadSettings: Reading all keys from storage.');
         // 读取本地和sync，优先用最新
-        chrome.storage.local.get(['apiKey', 'userProfile', 'selectedModel', 'isFilling', 'userProfile_ts'], (localResult) => {
-            chrome.storage.sync.get(['apiKey', 'userProfile', 'selectedModel', 'isFilling', 'userProfile_ts'], (syncResult) => {
-                // apiKey、selectedModel、isFilling 直接用sync优先
-                if (syncResult.apiKey) apiKeyInput.value = syncResult.apiKey;
-                else if (localResult.apiKey) apiKeyInput.value = localResult.apiKey;
-                if (syncResult.selectedModel) modelSelect.value = syncResult.selectedModel;
-                else if (localResult.selectedModel) modelSelect.value = localResult.selectedModel;
-                if (typeof syncResult.isFilling !== 'undefined') isFilling = syncResult.isFilling;
-                else if (typeof localResult.isFilling !== 'undefined') isFilling = localResult.isFilling;
+        chrome.storage.local.get(ALL_KEYS, (localResult) => {
+            chrome.storage.sync.get(ALL_KEYS, (syncResult) => {
+                console.log('[popup.js] loadSettings: Storage values loaded.', { localResult, syncResult });
 
-                // 用户画像比对时间戳
-                let localTs = localResult.userProfile_ts || 0;
-                let syncTs = syncResult.userProfile_ts || 0;
-                let userProfileRaw = '';
-                if (syncTs > localTs) userProfileRaw = syncResult.userProfile;
-                else userProfileRaw = localResult.userProfile;
+                // Helper to get the most recent value
+                const getValue = (key) => {
+                    // For userProfile, compare timestamps
+                    if (key === 'userProfile') {
+                        const localTs = localResult.userProfile_ts || 0;
+                        const syncTs = syncResult.userProfile_ts || 0;
+                        return syncTs > localTs ? syncResult.userProfile : localResult.userProfile;
+                    }
+                    // For other keys, sync wins
+                    return syncResult[key] !== undefined ? syncResult[key] : localResult[key];
+                };
+
+                // apiKey, selectedModel, isFilling
+                if (getValue('apiKey')) apiKeyInput.value = getValue('apiKey');
+                if (getValue('selectedModel')) modelSelect.value = getValue('selectedModel');
+                isFilling = !!getValue('isFilling');
+
+                // 用户画像
+                const userProfileRaw = getValue('userProfile');
                 if (userProfileRaw) {
                     try {
                         let arr = JSON.parse(userProfileRaw);
@@ -506,6 +538,21 @@ document.addEventListener('DOMContentLoaded', () => {
                         profileDisplay.value = userProfileRaw;
                     }
                 }
+
+                // 恢复所有开关的状态
+                if (mem0UploadToggle) mem0UploadToggle.checked = !!getValue(MEM0_UPLOAD_KEY);
+                if (mem0EnableToggle) mem0EnableToggle.checked = !!getValue(MEM0_ENABLE_KEY);
+                if (quickQueryToggle) quickQueryToggle.checked = !!getValue(QUICK_QUERY_KEY);
+                if (correctionToggle) {
+                    // Use the more robust timestamp comparison for the correction toggle
+                    const localTs = localResult[CORRECTION_TS_KEY] || 0;
+                    const syncTs = syncResult[CORRECTION_TS_KEY] || 0;
+                    const correctionValue = syncTs > localTs ? syncResult[CORRECTION_KEY] : localResult[CORRECTION_KEY];
+                    console.log(`[popup.js] loadSettings: '${CORRECTION_KEY}' from storage is: ${correctionValue}. Setting toggle to: ${!!correctionValue}`);
+                    correctionToggle.checked = !!correctionValue;
+                }
+
+
                 updateUI();
             });
         });
@@ -579,7 +626,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // 获取并发送消息
             (async () => {
-                const mem0Enable = mem0EnableToggle && mem0EnableToggle.checked;
+                // 从storage中重新获取最新的开关状态，确保准确性
+                const localSettings = await new Promise(res => chrome.storage.local.get([MEM0_ENABLE_KEY, CORRECTION_KEY, CORRECTION_TS_KEY], res));
+                const syncSettings = await new Promise(res => chrome.storage.sync.get([MEM0_ENABLE_KEY, CORRECTION_KEY, CORRECTION_TS_KEY], res));
+                
+                console.log('[popup.js] startFillingButton: Read settings from storage.', { localSettings, syncSettings });
+
+                const mem0Enable = !!(syncSettings[MEM0_ENABLE_KEY] !== undefined ? syncSettings[MEM0_ENABLE_KEY] : localSettings[MEM0_ENABLE_KEY]);
+                
+                // Compare timestamps to get the definitive most recent value for correctionEnabled
+                const localTs = localSettings[CORRECTION_TS_KEY] || 0;
+                const syncTs = syncSettings[CORRECTION_TS_KEY] || 0;
+                const correctionEnabled = !!(syncTs > localTs ? syncSettings[CORRECTION_KEY] : localSettings[CORRECTION_KEY]);
+
+                console.log(`[popup.js] startFillingButton: 'correctionEnabled' state to be sent: ${correctionEnabled} (syncTs: ${syncTs}, localTs: ${localTs})`);
+
                 let mem0Params = {};
 
                 if (mem0Enable) {
@@ -603,6 +664,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         profile: userProfile,
                         model: selectedModel || 'gpt-4.1',
                         mem0Enable,
+                        correctionEnabled, // 添加纠错开关状态
                         ...mem0Params
                     }
                 });

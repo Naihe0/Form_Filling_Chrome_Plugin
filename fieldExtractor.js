@@ -32,7 +32,7 @@ const FieldExtractor = (function() {
         HTML片段如下:
         \`\`\`
         html
-${html}
+        ${html}
         \`\`\`
         `;
 

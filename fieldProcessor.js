@@ -10,6 +10,7 @@ const FieldProcessor = {
     successfully_filled_fields: null,
     askLLM: null,
     selectedModel: null,
+    correctionEnabled: false, // 纠错开关状态
 
     /**
      * Initializes the FieldProcessor with necessary dependencies from the calling agent.
@@ -18,12 +19,16 @@ const FieldProcessor = {
      * @param {Set<string>} agentContext.successfully_filled_fields - A set of selectors for already filled fields.
      * @param {function} agentContext.askLLM - The function to communicate with the LLM.
      * @param {string} agentContext.selectedModel - The model selected by the user.
+     * @param {boolean} agentContext.correctionEnabled - The state of the correction toggle.
      */
     init(agentContext) {
+        console.log("[fieldProcessor.js] Initializing with context:", agentContext);
         this.statusUI = agentContext.statusUI;
         this.successfully_filled_fields = agentContext.successfully_filled_fields;
         this.askLLM = agentContext.askLLM;
         this.selectedModel = agentContext.selectedModel;
+        this.correctionEnabled = agentContext.correctionEnabled; // 保存状态
+        console.log(`[fieldProcessor.js] Correction feature state set to: ${this.correctionEnabled}`);
     },
 
     /**
@@ -100,7 +105,7 @@ const FieldProcessor = {
                 }
 
                 console.error(`[选项组处理] 字段 "${field.question}" 未能成功处理所有选项，将对整个组进行LLM纠错 (尝试 ${correctionAttempt + 1}/${MAX_CORRECTION_RETRIES})。`);
-                this.statusUI.update(`🤔 选项组填充失败，尝试纠错...`);
+                this.statusUI.startTimer(`🤔 选项组填充失败，尝试纠错...`);
                 
                 // We pass the original field object, which contains all selectors and options.
                 const fieldForCorrection = { ...field, value: valuesToSelect }; 
@@ -448,7 +453,20 @@ const FieldProcessor = {
      */
     async correctFieldWithLLM(originalField, error, profile) {
         console.log("[纠错模式] 准备向 LLM 请求修正方案...");
+        console.log(`[fieldProcessor.js] correctFieldWithLLM called. Current correctionEnabled state: ${this.correctionEnabled}`);
         let htmlContext = '';
+        const timeout = 30000; // 30 seconds timeout for LLM response
+        // 如果纠错开关打开，则切换到更强的模型
+        let modelForCorrection = this.selectedModel;
+        if (this.correctionEnabled) {
+            if (modelForCorrection.startsWith('deepseek')) {
+                modelForCorrection = "deepseek-r1";
+            } else if (modelForCorrection.startsWith('gemini')) {
+                modelForCorrection = "gemini-2.5-pro";
+            }
+            timeout = 60000; // Increase timeout for correction to 60 seconds
+            console.log(`[纠错模式] “推理纠错”已启用，临时切换到模型: ${modelForCorrection}`);
+        }
 
         console.log(originalField);
         // 尝试用问题文本在整个body中定位上下文
@@ -458,10 +476,10 @@ const FieldProcessor = {
             const idx = bodyHtml.indexOf(originalField.question);
             console.log(`问题文本 "${originalField.question}" 在body中索引位置: ${idx}`);
             if (idx !== -1) {
-                const start = Math.max(0, idx - 500);
+                const start = Math.max(0, idx - 1000);
                 const end = Math.min(bodyHtml.length, idx + originalField.question.length + 3000);
                 htmlContext = bodyHtml.substring(start, end);
-                console.log('[纠错模式] 通过问题文本在body中定位到上下文，并截取问题文本上下3000字符。');
+                console.log('[纠错模式] 通过问题文本在body中定位到上下文，并截取问题文本上下4000字符。');
             }
         }
 
@@ -485,8 +503,6 @@ const FieldProcessor = {
             console.warn(`[纠错模式] HTML 上下文过长 (${htmlContext.length} chars)，将截断为 15000 字符。`);
             htmlContext = htmlContext.substring(0, 15000);
         }
-
-        console.log("[纠错模式] 发送给LLM的HTML上下文:", htmlContext); // Log snippet
 
         const prompt = `
             你是一个Web自动化专家。一个自动化脚本在网页上填充字段时可能失败了。
@@ -527,14 +543,14 @@ const FieldProcessor = {
 
         try {
             const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('LLM a timeout occurred during correction.')), 30000) // 30秒超时
+                setTimeout(() => reject(new Error('LLM a timeout occurred during correction.')), timeout) // 30秒超时
             );
 
             // The askLLM function in content.js already parses the JSON string.
             // We receive an object here, so no need to parse it again.
             console.log("[纠错模式] Prompt内容:", prompt); // Log the prompt for debugging
             const correctedJson = await Promise.race([
-                this.askLLM(prompt, this.selectedModel),
+                this.askLLM(prompt, modelForCorrection), // 使用指定的纠错模型
                 timeoutPromise
             ]);
             console.log("[纠错模式] LLM返回的修正方案:", correctedJson);

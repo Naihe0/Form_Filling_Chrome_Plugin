@@ -28,6 +28,9 @@ async function callOpenAI(prompt, apiKey, model) {
     } else if (model.startsWith('gemini')) {
         API_URL = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
         apiName = 'Gemini';
+    } else if (model.startsWith('glm')) {
+        API_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
+        apiName = 'GLM';
     } else {
         API_URL = 'https://api.openai.com/v1/chat/completions';
     }

@@ -220,7 +220,10 @@
         async start(payload) {
             this.statusUI.update("🚀 开始填充表单...");
             try {
-                let { profile: userProfile, model, mem0Enable, mem0UserId, mem0ApiKey, mem0OrgId, mem0ProjectId } = payload;
+                let { profile: userProfile, model, mem0Enable, mem0UserId, mem0ApiKey, mem0OrgId, mem0ProjectId, correctionEnabled } = payload;
+                console.log("[content.js] start-filling message received with payload:", payload);
+                console.log(`[content.js] Correction feature enabled: ${correctionEnabled}`);
+
                 this.model = model || 'gpt-4.1';
 
                 console.log("用户信息:", userProfile);
@@ -268,11 +271,13 @@
 
                 // Initialize the field processor with the correct model for this run
                 if (typeof FieldProcessor !== 'undefined') {
+                    console.log(`[content.js] Initializing FieldProcessor with correctionEnabled: ${correctionEnabled}`);
                     FieldProcessor.init({
                         statusUI: this.statusUI,
                         successfully_filled_fields: this.successfully_filled_fields,
                         askLLM: askLLM, // Pass the global askLLM function
-                        selectedModel: this.model // Pass the selected model
+                        selectedModel: this.model, // Pass the selected model
+                        correctionEnabled: correctionEnabled // 传递纠错开关状态
                     });
                 } else {
                     console.error("CRITICAL: FieldProcessor is not loaded. fieldProcessor.js must be injected before content.js");
