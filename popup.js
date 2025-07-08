@@ -593,12 +593,9 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-            // --- SCRIPT INJECTION ---
-            // In Manifest V3, we must programmatically inject scripts.
-            await chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                files: ['fieldExtractor.js', 'fieldProcessor.js', 'content.js']
-            });
+            // --- SCRIPT INJECTION REMOVED ---
+            // Scripts are now injected via manifest.json, so this is no longer needed.
+            // await chrome.scripting.executeScript(...);
 
             // 读取本地和sync，优先用最新
             const local = await new Promise(res => chrome.storage.local.get(['userProfile', 'selectedModel', 'userProfile_ts'], res));
