@@ -37,9 +37,7 @@ const FieldExtractor = (function() {
         `;
 
         try {
-            console.log(`[LLM模式] Chunk #${chunkIndex} HTML to be processed (first 500 chars):`, html.substring(0, 500) + '...');
             let rawResponse = await askLLM(prompt, selectedModel);
-            console.log(`[LLM模式] Chunk #${chunkIndex} Raw LLM Response:`, rawResponse);
 
             let extractedFields = rawResponse;
             if (typeof extractedFields === 'object' && extractedFields !== null && !Array.isArray(extractedFields)) {
@@ -52,11 +50,9 @@ const FieldExtractor = (function() {
             }
             
             if (!Array.isArray(extractedFields)) {
-                console.warn(`[LLM模式] Chunk #${chunkIndex} 的 LLM 响应不是有效的数组，将返回空。`);
                 return [];
             }
             
-            console.log(`[LLM模式] Chunk #${chunkIndex} 解析后的字段:`, extractedFields);
             return extractedFields;
         } catch (e) {
             console.error(`[LLM模式] 处理 HTML 块 #${chunkIndex} 时发生严重错误:`, e);
@@ -69,7 +65,6 @@ const FieldExtractor = (function() {
      * @returns {Promise<Array>} A promise that resolves to an array of unique field objects.
      */
     async function extractFieldsWithLLM() {
-        console.log("[LLM模式] 开始使用 LLM 提取字段...");
         const formElement = document.body;
         
         const formClone = formElement.cloneNode(true);
@@ -101,18 +96,15 @@ const FieldExtractor = (function() {
             chunks.push(currentChunkHtml);
         }
 
-        console.log(`[LLM模式] HTML 被智能地分为 ${chunks.length} 个块进行处理。`);
 
         const allFields = [];
         for (const [index, chunk] of chunks.entries()) {
             if (isStopped()) {
-                console.log("[LLM模式] 字段提取被用户中断。");
                 return [];
             }
             // Use startTimer to show progress and the running timer
             statusUI.startTimer(`🔍 正在提取页面字段... (${index + 1}/${chunks.length})`);
 
-            console.log(`[LLM模式] 正在处理块 ${index + 1}/${chunks.length}...`);
             const result = await processHtmlChunkWithLLM(chunk, index + 1);
             if (result && Array.isArray(result)) {
                 const fieldsWithChunk = result.map(field => ({ ...field, htmlChunk: chunk }));
@@ -121,7 +113,6 @@ const FieldExtractor = (function() {
             await new Promise(r => setTimeout(r, 500)); // Rate limiting
         }
 
-        console.log(`[LLM模式] 所有块处理完毕，去重前共 ${allFields.length} 个字段。`);
 
         const uniqueFields = [];
         const seenFields = new Set();
@@ -135,7 +126,6 @@ const FieldExtractor = (function() {
             }
         }
         
-        console.log(`[LLM模式] 总共提取到 ${uniqueFields.length} 个独立字段。`);
         return uniqueFields;
     }
 
@@ -151,7 +141,6 @@ const FieldExtractor = (function() {
             _id: index
         }));
 
-        console.log("发送给LLM用于添加填充值的字段:", JSON.stringify(fieldsForPrompt, null, 2));
         const prompt = `
         你是一个高度智能的AI表单填充助手。你的任务是根据用户资料，为给定的JSON字段数组中的每个对象添加一个 'value' 键。
 
@@ -174,9 +163,7 @@ const FieldExtractor = (function() {
         `;
         
         try {
-            console.log("[LLM模式] 添加填充值的提示:", prompt);
             let updatedFieldsFromLLM = await askLLM(prompt, selectedModel);
-            console.log("LLM 返回的带填充值的字段:", updatedFieldsFromLLM);
             
             if (typeof updatedFieldsFromLLM === 'object' && updatedFieldsFromLLM !== null && !Array.isArray(updatedFieldsFromLLM)) {
                 const arrayKey = Object.keys(updatedFieldsFromLLM).find(key => Array.isArray(updatedFieldsFromLLM[key]));
@@ -241,7 +228,6 @@ const FieldExtractor = (function() {
          * @returns {Promise<Array>} A promise that resolves to an array of unique field objects.
          */
         extractFields: async function() {
-            console.log("启动LLM字段提取模式...");
             return await extractFieldsWithLLM();
         },
         

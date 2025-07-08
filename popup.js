@@ -102,7 +102,6 @@ if (correctionToggle) {
     correctionToggle.addEventListener('change', e => {
         const checked = correctionToggle.checked;
         const ts = Date.now();
-        console.log(`[popup.js] 'correction-toggle' changed. New state: ${checked}. Saving to storage with timestamp ${ts}.`);
         chrome.storage.local.set({ [CORRECTION_KEY]: checked, [CORRECTION_TS_KEY]: ts });
         chrome.storage.sync.set({ [CORRECTION_KEY]: checked, [CORRECTION_TS_KEY]: ts });
     });
@@ -117,7 +116,6 @@ if (correctionToggle) {
             } else {
                 val = localResult[CORRECTION_KEY];
             }
-            console.log(`[popup.js] Initializing 'correction-toggle' state from storage. Newest value is ${val} (syncTs: ${syncTs}, localTs: ${localTs})`);
             correctionToggle.checked = !!val;
         });
     });
@@ -504,11 +502,9 @@ document.addEventListener('DOMContentLoaded', () => {
             'apiKey', 'userProfile', 'selectedModel', 'isFilling', 'userProfile_ts',
             MEM0_UPLOAD_KEY, MEM0_ENABLE_KEY, QUICK_QUERY_KEY, CORRECTION_KEY, CORRECTION_TS_KEY
         ];
-        console.log('[popup.js] loadSettings: Reading all keys from storage.');
         // 读取本地和sync，优先用最新
         chrome.storage.local.get(ALL_KEYS, (localResult) => {
             chrome.storage.sync.get(ALL_KEYS, (syncResult) => {
-                console.log('[popup.js] loadSettings: Storage values loaded.', { localResult, syncResult });
 
                 // Helper to get the most recent value
                 const getValue = (key) => {
@@ -548,7 +544,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     const localTs = localResult[CORRECTION_TS_KEY] || 0;
                     const syncTs = syncResult[CORRECTION_TS_KEY] || 0;
                     const correctionValue = syncTs > localTs ? syncResult[CORRECTION_KEY] : localResult[CORRECTION_KEY];
-                    console.log(`[popup.js] loadSettings: '${CORRECTION_KEY}' from storage is: ${correctionValue}. Setting toggle to: ${!!correctionValue}`);
                     correctionToggle.checked = !!correctionValue;
                 }
 
@@ -630,16 +625,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const localSettings = await new Promise(res => chrome.storage.local.get([MEM0_ENABLE_KEY, CORRECTION_KEY, CORRECTION_TS_KEY], res));
                 const syncSettings = await new Promise(res => chrome.storage.sync.get([MEM0_ENABLE_KEY, CORRECTION_KEY, CORRECTION_TS_KEY], res));
                 
-                console.log('[popup.js] startFillingButton: Read settings from storage.', { localSettings, syncSettings });
-
                 const mem0Enable = !!(syncSettings[MEM0_ENABLE_KEY] !== undefined ? syncSettings[MEM0_ENABLE_KEY] : localSettings[MEM0_ENABLE_KEY]);
                 
                 // Compare timestamps to get the definitive most recent value for correctionEnabled
                 const localTs = localSettings[CORRECTION_TS_KEY] || 0;
                 const syncTs = syncSettings[CORRECTION_TS_KEY] || 0;
                 const correctionEnabled = !!(syncTs > localTs ? syncSettings[CORRECTION_KEY] : localSettings[CORRECTION_KEY]);
-
-                console.log(`[popup.js] startFillingButton: 'correctionEnabled' state to be sent: ${correctionEnabled} (syncTs: ${syncTs}, localTs: ${localTs})`);
 
                 let mem0Params = {};
 
@@ -671,7 +662,6 @@ document.addEventListener('DOMContentLoaded', () => {
             })();
 
         } catch (e) {
-            console.error("Error starting fill process:", e);
             showStatus(`启动失败: ${e.message}`, true);
             isFilling = false;
             chrome.storage.local.set({ isFilling: false });

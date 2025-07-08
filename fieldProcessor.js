@@ -22,13 +22,11 @@ const FieldProcessor = {
      * @param {boolean} agentContext.correctionEnabled - The state of the correction toggle.
      */
     init(agentContext) {
-        console.log("[fieldProcessor.js] Initializing with context:", agentContext);
         this.statusUI = agentContext.statusUI;
         this.successfully_filled_fields = agentContext.successfully_filled_fields;
         this.askLLM = agentContext.askLLM;
         this.selectedModel = agentContext.selectedModel;
         this.correctionEnabled = agentContext.correctionEnabled; // 保存状态
-        console.log(`[fieldProcessor.js] Correction feature state set to: ${this.correctionEnabled}`);
     },
 
     /**
@@ -44,7 +42,6 @@ const FieldProcessor = {
         // == REFACTORED LOGIC FOR HANDLING RADIO/CHECKBOX GROUPS              ==
         // ========================================================================
         if (Array.isArray(field.selector) && field.action.toLowerCase().includes('click') && field.options && value) {
-            console.log(`[选项组处理] 检测到选项组字段: "${field.question}"，需要选择: "${value}"`);
 
             const valuesToSelect = Array.isArray(value) ? value : [value];
             let allSucceeded = true;
@@ -55,7 +52,6 @@ const FieldProcessor = {
                 const optionIndex = field.options.findIndex(opt => opt.includes(singleValue) || singleValue.includes(opt));
 
                 if (optionIndex === -1) {
-                    console.error(`[选项组处理] 在选项 [${field.options.join(', ')}] 中未找到值 "${singleValue}"。`);
                     allSucceeded = false;
                     lastError = new Error(`Option value "${singleValue}" not found in available options.`);
                     continue; 
@@ -63,13 +59,11 @@ const FieldProcessor = {
 
                 const targetSelector = field.selector[optionIndex];
                 if (!targetSelector) {
-                    console.error(`[选项组处理] 索引 ${optionIndex} 在选择器数组中无效。`);
                     allSucceeded = false;
                     lastError = new Error(`Selector for option index ${optionIndex} is invalid.`);
                     continue;
                 }
 
-                console.log(`[选项组处理] 尝试点击: "${singleValue}" -> 选择器: "${targetSelector}"`);
                 
                 try {
                     const element = document.querySelector(targetSelector);
@@ -86,10 +80,8 @@ const FieldProcessor = {
                     
                     element.style.border = '2px solid green';
                     this.successfully_filled_fields.add(this.getUniqueSelector(element));
-                    console.log(`✅ [选项组处理] 成功点击: "${targetSelector}"`);
 
                 } catch (e) {
-                    console.error(`❌ [选项组处理] 点击选择器 "${targetSelector}" 时失败:`, e.message);
                     allSucceeded = false;
                     lastError = e; // Keep the last error for context
                 }
@@ -99,12 +91,10 @@ const FieldProcessor = {
             if (!allSucceeded) {
                 const MAX_CORRECTION_RETRIES = 1; // 设置最大纠错重试次数
                 if (correctionAttempt >= MAX_CORRECTION_RETRIES) {
-                    console.error(`❌ [选项组处理] 字段 "${field.question}" 已达到最大纠错次数，最终失败。`);
                     this.statusUI.update(`❌ 字段 "${field.question}" 填充失败`);
                     return; // 停止重试
                 }
 
-                console.error(`[选项组处理] 字段 "${field.question}" 未能成功处理所有选项，将对整个组进行LLM纠错 (尝试 ${correctionAttempt + 1}/${MAX_CORRECTION_RETRIES})。`);
                 this.statusUI.startTimer(`🤔 选项组填充失败，尝试纠错...`);
                 
                 // We pass the original field object, which contains all selectors and options.
@@ -115,7 +105,6 @@ const FieldProcessor = {
 
                     if (correctedField && correctedField.selector && correctedField.action) {
                         this.statusUI.update(`✅ 纠错成功，正在重试字段 "${field.question}"...`);
-                        console.log("[纠错后重试] 使用LLM修正后的新参数:", correctedField);
                         
                         // 使用修正后的数据递归调用，并增加重试计数器
                         await this.processSingleField(correctedField, correctedField.value || valuesToSelect, profile, correctionAttempt + 1);
@@ -124,7 +113,6 @@ const FieldProcessor = {
                         throw new Error("LLM 纠错未能返回有效的修正方案。");
                     }
                 } catch (correctionError) {
-                    console.error(`❌ 字段 "${field.question}" 彻底失败，LLM 纠错也无效:`, correctionError.message);
                     this.statusUI.update(`❌ 字段 "${field.question}" 填充失败`);
                 }
             }
@@ -146,14 +134,12 @@ const FieldProcessor = {
             const potentialElements = Array.from(document.querySelectorAll(selector));
 
             if (potentialElements.length > 1) {
-                console.log(`[歧义处理] 选择器 "${selector}" 匹配到 ${potentialElements.length} 个元素。将通过问题文本 "${question}" 和答案 "${valueToFill}" 进行精确定位。`);
                 
                 const isClickAction = action.toLowerCase().includes('click');
                 const normalize = str => (str || '').replace(/\s+/g, '').toLowerCase();
 
                 if (isClickAction) {
                     // Click Action: First find the container by question, then the element by answer.
-                    console.log(`[歧义处理] Click操作：将先用问题 "${question}" 定位范围，再用答案 "${valueToFill}" 寻找最佳匹配。`);
                     const normQuestion = normalize(question);
                     const normAnswer = normalize(valueToFill);
 
@@ -179,7 +165,6 @@ const FieldProcessor = {
                     }
 
                     if (bestContainer) {
-                        console.log(`[歧义处理] 已根据问题找到最佳容器。现在在容器内根据答案 "${valueToFill}" 寻找目标元素。`);
                         // Step 2: Inside the best container, find the element that best matches the answer.
                         const candidatesInContainer = Array.from(bestContainer.querySelectorAll(selector));
                         let bestElement = null;
@@ -195,12 +180,10 @@ const FieldProcessor = {
                         }
                         elementToProcess = bestElement;
                     } else {
-                        console.warn(`[歧义处理] 未能根据问题 "${question}" 找到一个清晰的父容器。`);
                     }
 
                 } else {
                     // Fill Action: Find the element closest to the question label.
-                    console.log(`[歧义处理] Fill操作：将使用问题 "${question}" 来寻找最佳匹配。`);
                     let minDistance = Infinity;
                     let bestElement = null;
                     let bestLabel = '';
@@ -237,13 +220,11 @@ const FieldProcessor = {
                     }
                     elementToProcess = bestElement;
                     if(bestElement) {
-                         console.log(`[歧义处理] 选择距离问题文本最近的元素 (匹配内容: "${bestLabel}")。`);
                     }
                 }
 
                 // Fallback if no element was selected through the logic above
                 if (!elementToProcess) {
-                    console.warn(`[歧义处理] 未能根据上下文找到明确的最佳匹配。将默认使用第一个可用的元素。`);
                     elementToProcess = potentialElements.find(el => !this.successfully_filled_fields.has(this.getUniqueSelector(el))) || null;
                 }
 
@@ -254,14 +235,12 @@ const FieldProcessor = {
             if (elementToProcess) {
                 const uniqueSelector = this.getUniqueSelector(elementToProcess);
                 if (this.successfully_filled_fields.has(uniqueSelector)) {
-                     console.warn(`[歧义处理] 目标元素 ${uniqueSelector} (问题: "${question}") 已经被填充过，将跳过。`);
                      return;
                 }
                 selector = uniqueSelector;
             }
             
         } catch (e) {
-            console.warn(`初始选择器 "${selector}" 无效: ${e.message}`);
         }
         // --- End of Ambiguity Resolution ---
 
@@ -270,14 +249,12 @@ const FieldProcessor = {
             try {
                 element = document.querySelector(selector);
             } catch (e) {
-                console.error(`[尝试 ${attempt}] 选择器 "${selector}" 无效:`, e.message);
                 lastError = e;
                 continue;
             }
 
             if (!element) {
                 lastError = new Error(`Element not found with selector: ${selector}`);
-                console.error(`[尝试 ${attempt}] 未找到元素: ${selector}`);
                 continue;
             }
 
@@ -290,7 +267,6 @@ const FieldProcessor = {
 
             try {
                 await this.executeAction(element, action, valueToFill);
-                console.log(`✅ [尝试 ${attempt}] 成功: Action '${action}' on '${question}' with selector '${selector}'`);
                 
                 // Cleanup visual feedback
                 element.style.border = '2px solid green';
@@ -304,12 +280,10 @@ const FieldProcessor = {
 
             } catch (e) {
                 lastError = e;
-                console.error(`[尝试 ${attempt}] 失败: Action '${action}' on '${question}'. Error:`, e.message);
                 element.style.border = '2px solid #b91c1c'; // Darker red for error
             }
         }
         
-        console.error(`常规尝试最终失败: Action '${action}' on '${question}'. 正在调用 LLM 进行纠错...`);
         
         this.statusUI.update(`🤔 填充失败，尝试纠错...`);
         const fieldForCorrection = { ...field, selector: selector, value: valueToFill }; // Pass value for context
@@ -318,7 +292,6 @@ const FieldProcessor = {
 
             if (correctedField && correctedField.selector && correctedField.action) {
                 this.statusUI.update(`✅ 纠错成功，正在重试字段 "${question}"...`);
-                console.log("[纠错后重试] 使用LLM修正后的新参数:", correctedField);
                 const finalElement = document.querySelector(correctedField.selector);
                 if (finalElement) {
                     // Use the value from the corrected field, or the original value if not provided.
@@ -327,7 +300,6 @@ const FieldProcessor = {
                     // Use the corrected selector for tracking success, get the unique one for robustness
                     const finalSelector = this.getUniqueSelector(finalElement);
                     this.successfully_filled_fields.add(finalSelector);
-                    console.log(`✅ [纠错后] 成功: Action '${correctedField.action}' on '${question}'`);
                 } else {
                     throw new Error("LLM 纠错后仍然找不到元素。");
                 }
@@ -335,7 +307,6 @@ const FieldProcessor = {
                  throw new Error("LLM 纠错未能返回有效的选择器或操作。");
             }
         } catch (correctionError) {
-            console.error(`❌ 字段 "${question}" 彻底失败，LLM 纠错也无效:`, correctionError.message);
             this.statusUI.update(`❌ 字段 "${question}" 填充失败`);
         }
     },
@@ -354,14 +325,11 @@ const FieldProcessor = {
                     element.click();
                     // For clicks, especially on custom elements, we need to verify success
                     if (!await this.verifyClickSuccess(element)) {
-                        console.warn("初步点击可能未成功，尝试模拟原生事件...");
                         const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
                         element.dispatchEvent(clickEvent);
                         if (!await this.verifyClickSuccess(element)) {
-                            console.error(`点击操作失败: ${element.tagName} (${element.className})`);
                             reject(new Error(`点击操作失败: ${element.tagName} (${element.className})`));
                         } else {
-                            console.log(`✅ 点击操作成功: ${element.tagName} (${element.className})`);
                         }
                     }
                 } else if (action.toLowerCase().includes('select') || element.tagName === 'SELECT') {
@@ -376,7 +344,6 @@ const FieldProcessor = {
                         }
                     }
                     if (!optionFound) {
-                         console.warn(`在 <select> 中未找到值 "${value}"`);
                     }
                     element.dispatchEvent(new Event('change', { bubbles: true }));
                 } else { // Default to input
@@ -403,10 +370,8 @@ const FieldProcessor = {
                 // Check 1: For native radio/checkbox, the 'checked' property is the source of truth.
                 if ((element.type === 'radio' || element.type === 'checkbox')) {
                     if (element.checked) {
-                        console.log('[VerifyClick] Success: Native checkbox/radio is checked.');
                         resolve(true);
                     } else {
-                        console.warn('[VerifyClick] Failure: Native checkbox/radio is NOT checked.');
                         resolve(false);
                     }
                     return;
@@ -414,14 +379,12 @@ const FieldProcessor = {
 
                 // Check 2: For ARIA custom controls, check aria-checked or aria-selected.
                 if (element.getAttribute('aria-checked') === 'true' || element.getAttribute('aria-selected') === 'true') {
-                    console.log('[VerifyClick] Success: ARIA state is checked/selected.');
                     resolve(true);
                     return;
                 }
 
                 // Check 3: If the element is no longer in the document, the click likely succeeded (e.g., a close button).
                 if (!document.body.contains(element)) {
-                    console.log('[VerifyClick] Success: Element was removed from DOM.');
                     resolve(true);
                     return;
                 }
@@ -430,14 +393,12 @@ const FieldProcessor = {
                 const style = window.getComputedStyle(element);
                 const isVisible = style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0' && element.offsetParent !== null;
                 if (!isVisible) {
-                    console.log('[VerifyClick] Success: Element is no longer visible.');
                     resolve(true);
                     return;
                 }
 
                 // Fallback: For other elements (like standard buttons that don't change state),
                 // assume success if it's still enabled. This is an optimistic check.
-                console.log('[VerifyClick] Fallback: Assuming success for visible, enabled element.');
                 resolve(!element.disabled);
 
             }, 500); // Wait a bit for UI to update
@@ -452,8 +413,6 @@ const FieldProcessor = {
      * @returns {Promise<object|null>} - A corrected field object or null.
      */
     async correctFieldWithLLM(originalField, error, profile) {
-        console.log("[纠错模式] 准备向 LLM 请求修正方案...");
-        console.log(`[fieldProcessor.js] correctFieldWithLLM called. Current correctionEnabled state: ${this.correctionEnabled}`);
         let htmlContext = '';
         const timeout = 30000; // 30 seconds timeout for LLM response
         // 如果纠错开关打开，则切换到更强的模型
@@ -465,21 +424,16 @@ const FieldProcessor = {
                 modelForCorrection = "gemini-2.5-pro";
             }
             timeout = 60000; // Increase timeout for correction to 60 seconds
-            console.log(`[纠错模式] “推理纠错”已启用，临时切换到模型: ${modelForCorrection}`);
         }
 
-        console.log(originalField);
         // 尝试用问题文本在整个body中定位上下文
-        console.log('[纠错模式] 使用关联的HTML块或问题文本定位上下文。');
         if (originalField.question) {
             const bodyHtml = document.body.outerHTML;
             const idx = bodyHtml.indexOf(originalField.question);
-            console.log(`问题文本 "${originalField.question}" 在body中索引位置: ${idx}`);
             if (idx !== -1) {
                 const start = Math.max(0, idx - 1000);
                 const end = Math.min(bodyHtml.length, idx + originalField.question.length + 3000);
                 htmlContext = bodyHtml.substring(start, end);
-                console.log('[纠错模式] 通过问题文本在body中定位到上下文，并截取问题文本上下4000字符。');
             }
         }
 
@@ -488,19 +442,16 @@ const FieldProcessor = {
                 const element = document.querySelector(originalField.selector);
                 if (element) {
                     htmlContext = this.getSurroundingHtml(element);
-                    console.log('[纠错模式] 使用选择器定位元素并获取其周边HTML作为上下文。');
                 } else {
                     throw new Error('Element not found via selector');
                 }
             } catch (e) {
-                console.log(`[纠错模式] 无法通过选择器 \"${originalField.selector}\" 定位元素，且未找到关联的HTML块。将发送整个 body HTML 作为上下文。`);
                 htmlContext = this.getVisibleHtml(); // Use the cleaned full HTML
             }
         }
 
         // Truncate context if it's too long
         if (htmlContext.length > 15000) {
-            console.warn(`[纠错模式] HTML 上下文过长 (${htmlContext.length} chars)，将截断为 15000 字符。`);
             htmlContext = htmlContext.substring(0, 15000);
         }
 
@@ -548,15 +499,12 @@ const FieldProcessor = {
 
             // The askLLM function in content.js already parses the JSON string.
             // We receive an object here, so no need to parse it again.
-            console.log("[纠错模式] Prompt内容:", prompt); // Log the prompt for debugging
             const correctedJson = await Promise.race([
                 this.askLLM(prompt, modelForCorrection), // 使用指定的纠错模型
                 timeoutPromise
             ]);
-            console.log("[纠错模式] LLM返回的修正方案:", correctedJson);
 
             if (correctedJson && correctedJson.error) {
-                console.error(`[纠错模式] LLM报告无法修复: ${correctedJson.error}`);
                 return null;
             }
 
@@ -569,11 +517,9 @@ const FieldProcessor = {
                     value: correctedJson.newValue || originalField.value // The value to fill might also be corrected
                 };
             } else {
-                console.warn("[纠错模式] LLM未能提供有效的修正选择器，将使用原始选择器重试。");
                 return originalField; // Return original field to retry
             }
         } catch (e) {
-            console.error("[纠错模式] 调用LLM进行纠错时发生严重错误:", e);
             return null;
         }
     },

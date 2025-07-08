@@ -32,7 +32,6 @@
         });
         if (!res.ok) throw new Error('mem0 profile 拉取失败');
         const data = await res.json();
-        console.log('[mem0 debug] mem0 profile 拉取结果:', data);
         // 组装profile
         return (Array.isArray(data) ? data : []).map(item => ({
             memory: item.memory,
@@ -42,8 +41,6 @@
         }));
     }
     // ===== end mem0_profile.js 逻辑 =====
-
-    console.log("智能表单填充助手：内容脚本已加载。");
 
     // --- Helper function to communicate with background script ---
     async function askLLM(prompt, model = 'gpt-4.1') {
@@ -91,13 +88,11 @@
             this.statusTextElement = null;
             this.timerInterval = null; // UNIFIED: To hold the interval ID for all timers
             this.hideTimeout = null;   // To hold the auto-hide timeout ID
-            console.log("StatusUI: New instance created.");
             this.init();
         }
 
         init() {
             const existingOverlay = document.getElementById('form-filler-overlay');
-            console.log(`StatusUI init: existingOverlay found? ${!!existingOverlay}`);
 
             if (existingOverlay) {
                 this.overlay = existingOverlay;
@@ -107,11 +102,9 @@
                     this.statusTextElement = document.createElement('span');
                     this.overlay.appendChild(this.statusTextElement);
                 }
-                console.log("StatusUI init: Re-using existing overlay.");
                 return;
             }
 
-            console.log("StatusUI init: Creating new overlay.");
             this.overlay = document.createElement('div');
             this.overlay.id = 'form-filler-overlay';
             Object.assign(this.overlay.style, {
@@ -151,7 +144,6 @@
                 if (!this.statusTextElement) return; // If still null, abort.
             }
             this.statusTextElement.textContent = message;
-            console.log("Status Update:", message);
         }
 
         startTimer(baseMessage) {
@@ -167,7 +159,6 @@
                     if (!this.statusTextElement) return; // Guard against init failure
                 }
                 this.statusTextElement.textContent = timedMessage;
-                console.log("Status Update:", timedMessage);
             };
             
             updateWithTime(); // Initial update
@@ -175,7 +166,6 @@
         }
 
         stopTimer() {
-            console.log('StatusUI: Stopping timer', this.timerInterval);
             if (this.timerInterval) {
                 clearInterval(this.timerInterval);
                 this.timerInterval = null;
@@ -221,29 +211,19 @@
             this.statusUI.update("🚀 开始填充表单...");
             try {
                 let { profile: userProfile, model, mem0Enable, mem0UserId, mem0ApiKey, mem0OrgId, mem0ProjectId, correctionEnabled } = payload;
-                console.log("[content.js] start-filling message received with payload:", payload);
-                console.log(`[content.js] Correction feature enabled: ${correctionEnabled}`);
 
                 this.model = model || 'gpt-4.1';
 
-                console.log("用户信息:", userProfile);
                 // 检查mem0开关，若开启则优先拉取mem0 profile
                 if (mem0Enable) {
                     this.statusUI.update("⏳ 正在从mem0平台拉取用户画像...");
                     try {
-                        console.log('[mem0 debug] 拉取参数:', {
-                            user_id: mem0UserId,
-                            apiKey: mem0ApiKey,
-                            orgId: mem0OrgId,
-                            projectId: mem0ProjectId,
-                        });
                         const mem0ProfileArr = await fetchMem0Profile({
                             user_id: mem0UserId,
                             apiKey: mem0ApiKey,
                             orgId: mem0OrgId,
                             projectId: mem0ProjectId
                         });
-                        console.log('[mem0 debug] mem0ProfileArr:', mem0ProfileArr);
                         // 组装成字符串格式
                         userProfile = mem0ProfileArr.map(item => {
                             return `memory: ${item.memory}\ncategories: ${item.categories?.join(',') || ''}\ndate: ${item.date}\nday_of_week: ${item.day_of_week}`;
@@ -271,7 +251,6 @@
 
                 // Initialize the field processor with the correct model for this run
                 if (typeof FieldProcessor !== 'undefined') {
-                    console.log(`[content.js] Initializing FieldProcessor with correctionEnabled: ${correctionEnabled}`);
                     FieldProcessor.init({
                         statusUI: this.statusUI,
                         successfully_filled_fields: this.successfully_filled_fields,
@@ -296,10 +275,8 @@
                 let page_has_changed = true;
                 while (page_has_changed) {
                     if (this.isStopped) {
-                        console.log("填充任务已被用户中断。");
                         break;
                     }
-                    console.log("开始新一轮的字段提取与填充...");
 
                     // Start timer and show initial message
                     this.statusUI.startTimer("🔍 正在提取页面字段...");
@@ -309,7 +286,6 @@
                     if (this.isStopped) break;
 
                     if (!all_fields_on_page || all_fields_on_page.length === 0) {
-                        console.log("当前页面未找到可填充字段。");
                         this.statusUI.update("🤔 未找到可填充字段。");
                     } else {
                         const fields_to_fill = all_fields_on_page.filter(f =>
@@ -337,7 +313,6 @@
                                 }
                             }
                         } else {
-                            console.log("所有已提取字段均已成功填充过。");
                             this.statusUI.update("👍 所有字段均已填充。");
                         }
                     }
@@ -345,7 +320,6 @@
                     if (this.isStopped) break;
 
                     // page_has_changed = await this.navigateToNextPage();
-                    console.log("单页填充模式：已完成当前页面，程序将终止。");
                     page_has_changed = false; // 在填充完一页后终止
                 }
 
@@ -391,12 +365,10 @@
 
         start() {
             document.addEventListener('keydown', this.handleKeyDown);
-            console.log("快捷问询功能已启动。");
         }
 
         stop() {
             document.removeEventListener('keydown', this.handleKeyDown);
-            console.log("快捷问询功能已停止。");
         }
 
         async handleKeyDown(event) {
@@ -432,15 +404,12 @@
                 }
                 const currentValue = activeElement.value;
 
-                console.log(`快捷问询已触发，当前输入内容: "${currentValue}"`);
                 this.statusUI = new StatusUI(); // 在此处创建UI实例
                 this.statusUI.startTimer("🚀 正在为您生成内容...");
     
                 try {
                     const prompt = this.constructPrompt(currentValue);
-                    console.log("QuickQuery Prompt:", prompt);
                     const response = await this.askLLM(prompt, this.model);
-                    console.log("QuickQuery Response:", response);
                     
                     let resultText = '';
                     if (typeof response === 'string') {
@@ -491,16 +460,13 @@
 
     // --- SCRIPT INITIALIZATION ---
     async function initializeQuickQueryOnLoad() {
-        console.log("初始化快捷问询功能...");
         try {
             const local = await new Promise(res => chrome.storage.local.get(['quick_query_enabled', 'userProfile', 'selectedModel', 'apiKey', 'userProfile_ts'], res));
             const sync = await new Promise(res => chrome.storage.sync.get(['quick_query_enabled', 'userProfile', 'selectedModel', 'apiKey', 'userProfile_ts'], res));
 
             // Prioritize sync over local for the enabled flag
             const isEnabled = typeof sync.quick_query_enabled !== 'undefined' ? sync.quick_query_enabled : local.quick_query_enabled;
-            console.log("初始化快捷问询功能，当前状态:", isEnabled ? "启用" : "禁用");
             if (isEnabled) {
-                console.log("快捷问询功能已启用，页面加载时自动激活。");
 
                 let userProfile = (sync.userProfile_ts || 0) > (local.userProfile_ts || 0) ? sync.userProfile : local.userProfile;
                 let selectedModel = sync.selectedModel || local.selectedModel;
@@ -534,7 +500,6 @@
         if (request.type === 'start-filling') {
             // Ensure we have a fresh agent instance for each run
             if (window.formFillerAgent && !window.formFillerAgent.isStopped) {
-                console.log("填充任务已在进行中。");
                 return;
             }
             window.formFillerAgent = new FormFillerAgent();
@@ -543,7 +508,6 @@
         } else if (request.type === 'stop-filling') {
             if (window.formFillerAgent) {
                 window.formFillerAgent.isStopped = true;
-                console.log("中断信号已接收。将在当前步骤完成后停止。");
             }
         } else if (request.type === 'toggle-quick-query') {
             const { enabled, profile, model } = request.payload;

@@ -86,3 +86,111 @@
 3.  打开任意网页，在需要输入的文本框或文本域中，输入一些引导性文字。
 4.  快速连续按三次 `·` 键。
 5.  等待片刻，AI生成的内容就会自动填充到你的光标之后。
+
+# Privacy Policy for AI Form Filler
+
+**Last Updated: July 8, 2025**
+
+This Privacy Policy describes how the "AI Form Filler" Chrome Extension (the "Extension") collects, uses, and shares information.
+
+---
+
+## English Version
+
+### 1. Introduction
+Welcome to AI Form Filler. We are committed to protecting your privacy. This policy outlines our practices concerning the information we handle to provide our form-filling services. By using our Extension, you agree to the collection and use of information in accordance with this policy.
+
+### 2. Information We Collect
+To provide its core functionality, the Extension needs to handle several types of data:
+
+*   **User-Provided Information**:
+    *   **User Profile**: You provide descriptive text about yourself ("User Profile") which is used as context for the AI to fill forms accurately.
+    *   **API Keys**: You provide an API key for a third-party Large Language Model (LLM) provider (e.g., OpenAI, ZhipuAI, etc.). This key is required to make API calls to the service.
+    *   **mem0 Credentials (Optional)**: If you choose to use the mem0.ai integration for long-term memory, you will provide credentials for the mem0.ai service.
+
+*   **Web Page Content**:
+    *   When you activate the Extension on a web page, it reads the labels and structure of the form fields on that page to understand what information is required.
+
+### 3. How We Use Your Information
+Your data is used exclusively to enable the features of the Extension:
+
+*   **To Fill Forms**: The primary use of your information is to fill out web forms. The Extension sends your User Profile and the web page's form-field context to the LLM provider you configured. The provider's AI model then generates the appropriate text to fill in the fields.
+*   **To Provide Long-Term Memory (Optional)**: If you enable the mem0.ai integration, your User Profile data is sent to your mem0.ai account to create a persistent memory, allowing the AI to provide more consistent and context-aware responses over time.
+
+### 4. How We Share Your Information
+Your data is only shared with the services you explicitly configure and consent to use. We do not sell or share your data with any other third parties.
+
+*   **Large Language Model (LLM) Providers**: To fill a form, the Extension sends your User Profile and the form's context to the LLM provider associated with the API key you provided. The privacy of this data is subject to the privacy policy of that specific provider (e.g., OpenAI, etc.).
+*   **mem0.ai (Optional)**: If you enable this feature, your User Profile data will be sent to mem0.ai, governed by their privacy policy.
+
+### 5. Data Storage and Security
+We take your privacy seriously and handle your data with care.
+
+*   **Local and Synchronized Storage**: Your User Profile, API keys, and settings are stored using Chrome's built-in storage APIs (`chrome.storage.local` and `chrome.storage.sync`).
+    *   `chrome.storage.local` stores data on your local machine.
+    *   `chrome.storage.sync` syncs your data across your devices where you are logged into your Chrome profile. This data is managed by Google and subject to their privacy policy.
+*   **Data Transmission**: All data sent to third-party services (LLM providers, mem0.ai) is transmitted securely over HTTPS.
+
+### 6. Your Choices and Control
+You have full control over your data:
+
+*   You can view, edit, or delete your User Profile at any time within the Extension's popup.
+*   You can change or remove your API keys at any time.
+*   You can enable or disable the mem0.ai integration at any time. Disabling it will stop any further data from being sent to mem0.ai.
+
+### 7. Changes to This Privacy Policy
+We may update our Privacy Policy from time to time. We will notify you of any changes by posting the new Privacy Policy in this section. You are advised to review this Privacy Policy periodically for any changes.
+
+### 8. Contact Us
+If you have any questions about this Privacy Policy, please open an issue on our GitHub repository.
+
+---
+
+## 中文版本 (Chinese Version)
+
+### 1. 引言
+欢迎使用“AI智能填表助手”。我们致力于保护您的隐私。本政策概述了我们为提供表单填充服务而处理信息的相关做法。使用本扩展程序，即表示您同意我们根据本政策收集和使用信息。
+
+### 2. 我们收集的信息
+为了提供核心功能，本扩展程序需要处理以下几类数据：
+
+*   **用户提供的信息**:
+    *   **用户画像**: 您提供关于您自己的描述性文本（“用户画像”），AI 将其用作上下文以准确填写表单。
+    *   **API密钥**: 您提供一个第三方大型语言模型（LLM）服务商（如 OpenAI, ZhipuAI 等）的API密钥。该密钥是调用其服务的必需品。
+    *   **mem0凭据 (可选)**: 如果您选择使用 mem0.ai 集成以实现长期记忆功能，您需要提供 mem0.ai 服务的凭据。
+
+*   **网页内容**:
+    *   当您在某个网页上激活本扩展时，它会读取该页面上表单字段的标签和结构，以理解需要填写哪些信息。
+
+### 3. 我们如何使用您的信息
+您的数据仅用于实现本扩展程序的功能：
+
+*   **用于填写表单**: 您的信息最主要的用途是填写网页表单。本扩展会将您的用户画像和网页的表单上下文发送给您配置的LLM服务商。该服务商的AI模型会生成相应的文本来填充字段。
+*   **用于提供长期记忆 (可选)**: 如果您启用 mem0.ai 集成，您的用户画像数据将被发送到您的 mem0.ai 账户以创建持久化记忆，从而让AI能够提供更连贯、更具上下文感知能力的回答。
+
+### 4. 我们如何共享您的信息
+您的数据仅与您明确配置并同意使用的服务共享。我们不会将您的数据出售或与任何其他第三方共享。
+
+*   **大型语言模型 (LLM) 服务商**: 为了填写表单，本扩展会将您的用户画像和表单上下文发送至您提供的API密钥所对应的LLM服务商。该数据的隐私受相应服务商（如 OpenAI 等）的隐私政策约束。
+*   **mem0.ai (可选)**: 如果您启用此功能，您的用户画像数据将被发送至 mem0.ai，并受其隐私政策的约束。
+
+### 5. 数据存储与安全
+我们非常重视您的隐私，并谨慎处理您的数据。
+
+*   **本地存储与同步存储**: 您的用户画像、API密钥和设置使用Chrome内置的存储API（`chrome.storage.local` 和 `chrome.storage.sync`）进行存储。
+    *   `chrome.storage.local` 将数据存储在您的本地计算机上。
+    *   `chrome.storage.sync` 会在您登录了Chrome账户的所有设备间同步您的数据。该数据由Google管理，并受其隐私政策的约束。
+*   **数据传输**: 所有发送到第三方服务（LLM服务商, mem0.ai）的数据都通过HTTPS安全传输。
+
+### 6. 您的选择与控制权
+您对自己的数据拥有完全的控制权：
+
+*   您可以随时在扩展程序的弹出窗口中查看、编辑或删除您的用户画像。
+*   您可以随时更改或移除您的API密钥。
+*   您可以随时启用或禁用 mem0.ai 集成。禁用后，将不会再有数据发送到 mem0.ai。
+
+### 7. 隐私政策的变更
+我们可能会不时更新我们的隐私政策。如有任何变更，我们会通过在此处发布新的隐私政策来通知您。建议您定期查看本隐私政策以了解任何变更。
+
+### 8. 联系我们
+如果您对本隐私政策有任何疑问，请在我们的GitHub仓库中提交一个 issue。

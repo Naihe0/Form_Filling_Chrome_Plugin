@@ -1,0 +1,10 @@
+{
+  "extensionName": {
+    "message": "AI Form Filler",
+    "description": "The name of the extension."
+  },
+  "extensionDescription": {
+    "message": "Automatically analyzes and fills forms on the current webpage using AI.",
+    "description": "The description of the extension."
+  }
+}
