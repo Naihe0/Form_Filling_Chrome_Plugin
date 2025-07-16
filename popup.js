@@ -55,10 +55,12 @@ if (quickQueryToggle) {
             if (!tab) return;
 
             // 注入必要的脚本
-            await chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                files: ['fieldExtractor.js', 'fieldProcessor.js', 'content.js']
-            });
+            try {
+                await chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    files: ['fieldExtractor.js', 'fieldProcessor.js', 'content.js']
+                });
+            } catch (error) {}
 
             if (checked) {
                 const local = await new Promise(res => chrome.storage.local.get(['userProfile', 'selectedModel', 'userProfile_ts', 'apiKey'], res));

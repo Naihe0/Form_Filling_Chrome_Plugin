@@ -354,94 +354,129 @@
             this.userProfile = options.userProfile;
             this.model = options.model;
             this.askLLM = options.askLLM;
-            this.statusUI = null; // 仅在需要时创建
+            this.statusUI = null;
+            this.activeElement = null; // 追踪当前激活的元素
 
-            this.lastBacktickTime = 0;
-            this.backtickClickCount = 0;
-            this.tripleClickThreshold = 500; // ms
-
-            this.handleKeyDown = this.handleKeyDown.bind(this);
+            // 绑定 this，确保在事件监听器中 this 指向 QuickQueryHandler 实例
+            this.handleFocus = this.handleFocus.bind(this);
+            this.handleBlur = this.handleBlur.bind(this);
+            this.handleInput = this.handleInput.bind(this);
         }
 
         start() {
-            document.addEventListener('keydown', this.handleKeyDown);
+            // 使用事件捕获（capture=true）来更早地捕获 focus 和 blur 事件
+            document.addEventListener('focus', this.handleFocus, true);
+            document.addEventListener('blur', this.handleBlur, true);
+            console.log("QuickQueryHandler started. Watching for focus events.");
         }
 
         stop() {
-            document.removeEventListener('keydown', this.handleKeyDown);
+            document.removeEventListener('focus', this.handleFocus, true);
+            document.removeEventListener('blur', this.handleBlur, true);
+            // 如果在停止时仍有激活的元素，移除其 input 监听器
+            if (this.activeElement) {
+                this.activeElement.removeEventListener('input', this.handleInput);
+            }
+            console.log("QuickQueryHandler stopped.");
         }
 
-        async handleKeyDown(event) {
-            // 在中文输入法下，反引号键可能会被识别为'·'，所以同时判断
-            if (event.key === '`' || event.key === '·') {
-                const now = Date.now();
-                if (now - this.lastBacktickTime < this.tripleClickThreshold) {
-                    this.backtickClickCount++;
+        // 当任何元素获得焦点时调用
+        handleFocus(event) {
+            const target = event.target;
+            // 检查目标元素是否是我们关心的输入类型
+            const isTextInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+            const isContentEditable = target.isContentEditable;
+
+            if (isTextInput || isContentEditable) {
+                // 移除旧的监听器（如果有的话）
+                if (this.activeElement) {
+                    this.activeElement.removeEventListener('input', this.handleInput);
+                }
+                // 为新获得焦点的元素添加 'input' 监听器
+                this.activeElement = target;
+                this.activeElement.addEventListener('input', this.handleInput);
+            }
+        }
+
+        // 当元素失去焦点时调用
+        handleBlur(event) {
+            // 如果失去焦点的元素是我们正在追踪的元素，则移除监听器
+            if (this.activeElement && this.activeElement === event.target) {
+                this.activeElement.removeEventListener('input', this.handleInput);
+                this.activeElement = null;
+            }
+        }
+
+        // 当被监听的输入框内容变化时调用
+        handleInput(event) {
+            const element = event.target;
+            const value = element.isContentEditable ? element.textContent : element.value;
+
+            // 检查内容是否以触发器结尾
+            if (value && (value.endsWith('```') || value.endsWith('···'))) {
+                // 异步触发，避免阻塞当前的 input 事件流
+                setTimeout(() => this.triggerQuickQuery(element, value), 0);
+            }
+        }
+
+        async triggerQuickQuery(element, currentValue) {
+            // 移除触发字符
+            const queryValue = currentValue.slice(0, -3);
+
+            this.statusUI = new StatusUI();
+            this.statusUI.startTimer("🚀 正在为您生成内容...");
+
+            try {
+                const prompt = this.constructPrompt(queryValue);
+                const response = await this.askLLM(prompt, this.model);
+
+                let resultText = '';
+                if (typeof response === 'string') {
+                    resultText = response;
+                } else if (typeof response.answer === 'string') {
+                    resultText = response.answer;
                 } else {
-                    this.backtickClickCount = 1;
+                    throw new Error("LLM 返回了未知格式的数据。");
                 }
-                this.lastBacktickTime = now;
 
-                if (this.backtickClickCount === 3) {
-                    this.backtickClickCount = 0; // Reset counter
-                    // 使用setTimeout确保在按键事件（将字符输入文本框）之后执行
-                    setTimeout(() => this.triggerQuickQuery(), 0);
+                // 使用健壮的方法设置最终的文本内容
+                this.setElementValue(element, queryValue + resultText);
+                this.statusUI.update("✅ 内容已生成并填充！");
+
+            } catch (error) {
+                console.error("快捷问询失败:", error);
+                this.statusUI.update(`❌ 快捷问询失败: ${error.message}`);
+            } finally {
+                if (this.statusUI) {
+                    setTimeout(() => {
+                        this.statusUI.remove();
+                        this.statusUI = null;
+                    }, 3000);
                 }
             }
         }
 
-        async triggerQuickQuery() {
-            const activeElement = document.activeElement;
-            if (!activeElement) return;
-
-            const isTextInput = activeElement.tagName === 'INPUT' && (activeElement.type === 'text' || activeElement.type === 'password' || activeElement.type === 'email' || activeElement.type === 'search' || activeElement.type === 'tel' || activeElement.type === 'url');
-            const isTextArea = activeElement.tagName === 'TEXTAREA';
-
-            if (isTextInput || isTextArea) {
-                // 移除触发事件的三个反引号
-                if (activeElement.value.endsWith('```') || activeElement.value.endsWith('···')) {
-                    activeElement.value = activeElement.value.slice(0, -3);
-                }
-                const currentValue = activeElement.value;
-
-                this.statusUI = new StatusUI(); // 在此处创建UI实例
-                this.statusUI.startTimer("🚀 正在为您生成内容...");
-    
-                try {
-                    const prompt = this.constructPrompt(currentValue);
-                    const response = await this.askLLM(prompt, this.model);
-                    
-                    let resultText = '';
-                    if (typeof response === 'string') {
-                        resultText = response;
-                    } else if (typeof response === 'object' && response.answer) {
-                        resultText = response.answer;
-                    } else {
-                        throw new Error("LLM 返回了未知格式的数据。");
-                    }
-
-                    // 将生成的内容追加到用户输入之后
-                    activeElement.value = currentValue + resultText;
-
-                    this.statusUI.update("✅ 内容已生成并填充！");
-                } catch (error) {
-                    console.error("快捷问询失败:", error);
-                    this.statusUI.update(`❌ 快捷问询失败: ${error.message}`);
-                } finally {
-                    // 确保UI被移除
-                    if (this.statusUI) {
-                        setTimeout(() => {
-                            this.statusUI.remove();
-                            this.statusUI = null; // 清理实例
-                        }, 3000);
-                    }
-                }
+        // (这个方法保持和你之前版本的一致)
+        setElementValue(element, value) {
+            if (element.isContentEditable) {
+                element.focus();
+                document.execCommand('selectAll', false, null);
+                document.execCommand('insertText', false, value);
+                return;
             }
+            const elementPrototype = Object.getPrototypeOf(element);
+            const valueSetter = Object.getOwnPropertyDescriptor(elementPrototype, 'value')?.set;
+            if (valueSetter) {
+                valueSetter.call(element, value);
+            } else {
+                element.value = value;
+            }
+            element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+            element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
         }
 
         constructPrompt(inputValue) {
             return `
-            您是一个帮助用户填写表单的AI助手。
             用户的个人信息（用户画像）如下:
             ---
             ${this.userProfile}
@@ -452,7 +487,7 @@
             ${inputValue}
             ---
 
-            请根据用户的个人信息和已有输入，生成一个合适内容，用于填入该表单字段。
+            请根据用户的个人信息和已有输入，生成一个合适内容。
             请直接返回最终的文本结果，不要包含任何额外的解释或标记。
             `;
         }
