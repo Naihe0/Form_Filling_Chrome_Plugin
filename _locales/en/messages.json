@@ -1,10 +1,10 @@
 {
   "extensionName": {
     "message": "AI Form Filler",
-    "description": "The name of the extension."
+    "description": "The display name of the extension."
   },
   "extensionDescription": {
-    "message": "Automatically analyzes and fills forms on the current webpage using AI.",
-    "description": "The description of the extension."
+    "message": "Automatically analyse and fill web forms using AI. Supports OpenRouter, OpenAI, Gemini, and Qwen.",
+    "description": "A short description shown on the Chrome extensions page."
   }
 }

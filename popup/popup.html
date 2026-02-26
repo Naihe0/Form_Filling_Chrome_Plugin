@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Form Filler</title>
+  <link rel="stylesheet" href="popup.css" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
+</head>
+<body>
+  <div id="app" class="app">
+    <!-- ──────────── Header ──────────── -->
+    <div class="header">
+      <span class="header-title" data-i18n="extensionName">AI Form Filler</span>
+      <div class="lang-toggle">
+        <button id="langEn" class="lang-btn active">EN</button>
+        <button id="langZh" class="lang-btn">中文</button>
+      </div>
+    </div>
+
+    <!-- ──────────── Tab bar ──────────── -->
+    <div id="tab-bar" class="tab-bar">
+      <button id="tabProfile" class="tab" data-i18n="tabProfile">Profile</button>
+      <button id="tabFill" class="tab active" data-i18n="tabFill">Fill</button>
+    </div>
+
+    <!-- ──────────── Profile view ──────────── -->
+    <div id="view-profile" class="view hidden">
+      <textarea
+        id="profileDisplay"
+        readonly
+        data-i18n-placeholder="profilePlaceholder"
+      ></textarea>
+      <div class="input-row">
+        <input
+          type="text"
+          id="profileInput"
+          data-i18n-placeholder="profileInputPlaceholder"
+        />
+        <button id="editProfileBtn" class="btn-sm" data-i18n="editBtn">Edit</button>
+        <button id="saveProfileBtn" class="btn-icon" data-i18n-title="saveBtn">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" y1="3" x2="12" y2="15" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- ──────────── Fill view ──────────── -->
+    <div id="view-fill" class="view">
+      <!-- Provider config -->
+      <div class="form-group">
+        <label data-i18n="serviceProvider">Service Provider</label>
+        <select id="providerSelect">
+          <option value="openrouter">OpenRouter</option>
+          <option value="openai" selected>OpenAI</option>
+          <option value="gemini">Gemini</option>
+          <option value="qwen">Qwen</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label data-i18n="modelId">Model ID</label>
+        <input type="text" id="modelIdInput" placeholder="e.g., gpt-4.1" />
+      </div>
+
+      <div class="form-group">
+        <label data-i18n="apiKey">API Key</label>
+        <input
+          type="password"
+          id="apiKeyInput"
+          data-i18n-placeholder="apiKeyPlaceholder"
+        />
+      </div>
+
+      <!-- Feature toggles -->
+      <div class="toggle-row">
+        <span data-i18n="quickQuery">Quick Query</span>
+        <label class="switch">
+          <input type="checkbox" id="quickQueryToggle" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <div class="toggle-row">
+        <span data-i18n="reasoningCorrection">Reasoning Correction</span>
+        <label class="switch">
+          <input type="checkbox" id="correctionToggle" />
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <button id="startFillingBtn" class="btn btn-primary" data-i18n="startFilling">
+        Start Filling
+      </button>
+    </div>
+
+    <!-- ──────────── Filling-in-progress view ──────────── -->
+    <div id="view-filling" class="view hidden">
+      <div class="spinner-wrap">
+        <div class="spinner"></div>
+      </div>
+      <button id="stopFillingBtn" class="btn btn-danger" data-i18n="stopFilling">
+        Stop Filling
+      </button>
+    </div>
+
+    <!-- ──────────── Status bar ──────────── -->
+    <div id="status" class="status"></div>
+  </div>
+
+  <!-- Shared libraries (paths relative to popup/ directory) -->
+  <script src="../lib/i18n.js"></script>
+  <script src="../lib/storage.js"></script>
+  <script src="../lib/providers.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

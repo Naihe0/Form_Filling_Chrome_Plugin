@@ -1,10 +1,10 @@
 {
   "extensionName": {
-    "message": "AI智能填表助手",
-    "description": "扩展程序的名称。"
+    "message": "AI 智能填表助手",
+    "description": "扩展程序的显示名称。"
   },
   "extensionDescription": {
-    "message": "使用 AI 自动分析并填充当前网页上的表单。",
-    "description": "扩展程序的描述。"
+    "message": "使用 AI 自动分析并填充网页表单。支持 OpenRouter、OpenAI、Gemini 和 Qwen。",
+    "description": "Chrome 扩展程序页面上展示的简要说明。"
   }
 }
