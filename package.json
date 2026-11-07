@@ -1,0 +1,28 @@
+{
+  "name": "ai-form-filler",
+  "version": "3.0.0",
+  "description": "Chrome extension that fills web forms from a natural-language profile, driven by a verifiable LLM harness.",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run test:unit && npm run test:browser",
+    "test:unit": "node --test \"tests/unit/**/*.test.ts\"",
+    "test:browser": "npm run build && node --test --test-concurrency=1 \"tests/browser/**/*.test.ts\"",
+    "eval": "npm run build && node evals/run.ts",
+    "eval:frameworks": "npm install --prefix evals/frameworks --no-audit --no-fund --ignore-scripts && node evals/frameworks/run.ts",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.7",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.28.2",
+    "playwright": "^1.65.0",
+    "typescript": "^7.0.2"
+  }
+}

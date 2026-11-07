@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Embedded forms</title>
+  <style>
+    body { font-family: sans-serif; max-width: 640px; margin: 24px auto; }
+    iframe { width: 100%; height: 130px; border: 1px solid #ccc; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h1>Embedded forms</h1>
+  <label>Full name <input name="top_name" /></label>
+
+  <profile-card></profile-card>
+
+  <!-- Same origin, then a different origin (localhost vs 127.0.0.1). -->
+  <iframe id="same" src="embedded-frame.html?field=frame_email&amp;label=Email%20address"></iframe>
+  <iframe id="cross"></iframe>
+  <!-- Nothing fillable here; it must not cost a model call. -->
+  <iframe id="empty" srcdoc="<p>An advertisement.</p>"></iframe>
+
+  <script>
+    class ProfileCard extends HTMLElement {
+      connectedCallback() {
+        const shadow = this.attachShadow({ mode: 'open' });
+        shadow.innerHTML = `
+          <fieldset>
+            <legend>Inside a shadow root</legend>
+            <label for="employer">Current employer</label>
+            <input id="employer" name="shadow_employer" />
+          </fieldset>`;
+      }
+    }
+    customElements.define('profile-card', ProfileCard);
+
+    const other = location.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
+    document.getElementById('cross').src =
+      `http://${other}:${location.port}/embedded-frame.html?field=frame_phone&label=Phone%20number`;
+  </script>
+</body>
+</html>

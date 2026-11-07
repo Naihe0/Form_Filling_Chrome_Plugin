@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Dynamic form</title>
+  <style>
+    body { font-family: sans-serif; max-width: 640px; margin: 24px auto; }
+    .row { margin: 14px 0; }
+    .row > label { display: block; }
+  </style>
+</head>
+<body>
+  <h1>Employment details</h1>
+  <form id="form" onsubmit="window.__submitted = true; return false;">
+    <!-- Answering Yes reveals another question, a moment later. -->
+    <fieldset>
+      <legend>Are you currently employed?</legend>
+      <label><input type="radio" name="employed" value="yes" /> Yes</label>
+      <label><input type="radio" name="employed" value="no" /> No</label>
+    </fieldset>
+    <div class="row" id="employer-row" hidden>
+      <label>Current employer <input name="employer" /></label>
+    </div>
+
+    <!-- The second select's options depend on the first, and arrive async. -->
+    <div class="row">
+      <label>Country
+        <select name="country">
+          <option value="">Choose...</option>
+          <option value="cn">China</option>
+          <option value="us">United States</option>
+        </select>
+      </label>
+    </div>
+    <div class="row" id="state-row" hidden>
+      <label>Province or state
+        <select name="state"></select>
+      </label>
+    </div>
+
+    <!-- Behaves like a React controlled input: the DOM value is overwritten
+         from state unless an input event carried the change. -->
+    <div class="row">
+      <label>City <input name="city" id="city" /></label>
+    </div>
+
+    <!-- A mask rewrites the value as it is entered. -->
+    <div class="row">
+      <label>Mobile phone <input type="tel" name="mobile" id="mobile" /></label>
+    </div>
+
+    <!-- Changing this re-renders the next field, replacing its element. -->
+    <div class="row">
+      <label>Team size
+        <select name="size" id="size">
+          <option value="">Choose...</option>
+          <option value="s">1-10</option>
+          <option value="m">11-50</option>
+        </select>
+      </label>
+    </div>
+    <div class="row" id="dept-slot"></div>
+
+    <button type="submit">Save</button>
+  </form>
+
+  <script>
+    window.__submitted = false;
+
+    /* Conditional question */
+    document.querySelectorAll('input[name="employed"]').forEach((radio) => {
+      radio.addEventListener('change', () => {
+        setTimeout(() => {
+          document.getElementById('employer-row').hidden = radio.value !== 'yes' || !radio.checked;
+        }, 100);
+      });
+    });
+
+    /* Dependent select */
+    const STATES = { cn: ['Guangdong', 'Zhejiang'], us: ['California', 'Texas'] };
+    document.querySelector('select[name="country"]').addEventListener('change', (event) => {
+      const value = event.target.value;
+      setTimeout(() => {
+        const state = document.querySelector('select[name="state"]');
+        state.innerHTML = '<option value="">Choose...</option>';
+        for (const name of STATES[value] ?? []) state.add(new Option(name, name));
+        document.getElementById('state-row').hidden = !value;
+      }, 120);
+    });
+
+    /* Controlled input, with React's trick of tracking value on the instance. */
+    const city = document.getElementById('city');
+    let cityState = '';
+    const proto = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+    let tracked = '';
+    Object.defineProperty(city, 'value', {
+      configurable: true,
+      get() { return proto.get.call(this); },
+      set(value) { tracked = value; proto.set.call(this, value); },
+    });
+    city.addEventListener('input', () => {
+      const current = proto.get.call(city);
+      // React ignores input events whose value matches what it last saw written.
+      if (current !== tracked) {
+        cityState = current;
+        tracked = current;
+      }
+    });
+    city.addEventListener('blur', () => { city.value = cityState; });
+
+    /* Input mask */
+    const mobile = document.getElementById('mobile');
+    mobile.addEventListener('input', () => {
+      const digits = mobile.value.replace(/\D/g, '').slice(0, 11);
+      const parts = [digits.slice(0, 3), digits.slice(3, 7), digits.slice(7)].filter(Boolean);
+      mobile.value = parts.join('-');
+    });
+
+    /* Re-render */
+    const slot = document.getElementById('dept-slot');
+    function renderDept() {
+      slot.innerHTML = '<label>Department <input name="department" /></label>';
+    }
+    renderDept();
+    document.getElementById('size').addEventListener('change', renderDept);
+  </script>
+</body>
+</html>

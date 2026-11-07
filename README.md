@@ -1,162 +1,107 @@
-# AI Form Filler — Chrome Extension
+# AI Form Filler
 
-An intelligent Chrome extension that uses Large Language Models (LLMs) to automatically analyse and fill web forms based on a user-defined profile.
+A Chrome extension that fills web forms from a profile you write in plain language, using an LLM with your own API key.
 
-> **Version 2.0** — Fully refactored with modular architecture, runtime EN/中文 switching, and multi-provider LLM support.
+[中文说明](README.zh-CN.md)
 
----
+You describe yourself once. On any form, press **Start Filling**, review what it entered, and submit it yourself. It handles native controls, custom dropdowns, cascaders, calendars, survey widgets, embedded frames and fields that appear as you answer, and is [evaluated against real Ant Design, Material UI and Element Plus forms](docs/TESTING.md#latest-results).
 
-## ✨ Features
+## What makes it trustworthy
 
-| Feature | Description |
-|---|---|
-| **Multi-Provider LLM** | Switch between **OpenRouter**, **OpenAI**, **Gemini**, and **Qwen** — enter any model ID and API key per provider. |
-| **Bilingual UI** | Toggle between English and Chinese at runtime; the entire popup and all in-page status messages update instantly. |
-| **AI-Powered** | Uses LLMs to *understand* form semantics instead of relying on brittle CSS selectors or hard-coded rules. |
-| **LLM Agent Loop** | For dynamic widgets (dropdowns, calendars, cascaders, map-like selectors), the extension runs an observe → ask LLM → execute → observe loop until done or limit reached. |
-| **Quick Query** | In any text box, type three back-ticks (` ``` `) or middle-dots (`···`) to trigger an AI auto-completion based on your profile. |
-| **Smart Correction** | When a field fill fails, the extension automatically asks the LLM to analyse the surrounding HTML and retry with a corrected selector. |
-| **Ambiguity Resolution** | When a selector matches multiple elements, the extension uses text proximity to the question label to pick the right one. |
-| **Visual Feedback** | A floating status bar on the page shows live progress, elapsed time, and per-field status (green = success, red = error). |
-| **Profile Management** | Append, edit, and persist natural-language profile entries — no JSON required. |
+- **It checks its own work.** Every value is read back from the page. The report separates what it proved from what you should check.
+- **It never submits.** Nor does it touch passwords, payment details, verification codes, CAPTCHAs, consent boxes or file uploads. These rules are enforced in code, so page text cannot talk the model out of them.
+- **It sends little.** The model sees field labels and options, never the page's HTML, hidden inputs or the contents of other fields. [What exactly is sent](PRIVACY.md).
+- **It keeps secrets out of the page.** Your key and profile stay in the extension's trusted context, and scripts running on web pages cannot read them.
+- **It does not guess.** If your profile has no answer, the field stays empty and the report says so.
 
----
+## Install
 
-## 🚀 Quick Start
+Requires Node 22.18 or newer, and Chrome 121 or newer.
 
-### Installation
-
-1. Clone or download this repository.
-2. Open `chrome://extensions` in Chrome.
-3. Enable **Developer mode** (top-right toggle).
-4. Click **Load unpacked** and select the repository folder.
-5. After updating, click the **Refresh** button on the extension card to reload the manifest.
-
-### Usage
-
-#### 1. Set your Profile
-
-Open the extension popup → **Profile** tab → type your personal information (in natural language) → click the upload icon to save.
-
-#### 2. Configure a Provider
-
-Open the popup → **Fill** tab:
-
-| Field | Example |
-|---|---|
-| **Service Provider** | `OpenAI` |
-| **Model ID** | `gpt-4.1` |
-| **API Key** | `sk-...` |
-
-Each provider's API key and model are saved independently — switching providers loads the previously saved config.
-
-#### 3. Fill a Form
-
-Navigate to a page with a form, open the popup, and click **Start Filling**. The extension will:
-
-1. Extract all form fields via LLM analysis of the page HTML.
-2. Match field values against your profile.
-3. Fill each field with visual feedback and LLM-driven step-by-step interaction for dynamic components.
-4. Auto-correct on failure using a second LLM call.
-
-Click **Stop Filling** at any time to abort.
-
-#### 4. Quick Query
-
-With profile and API key configured, enable **Quick Query** in the Fill tab. Then, on any page, focus a text field, type some context, and end with ` ``` ` or `···`. The AI will auto-complete based on your profile.
-
----
-
-## 🗂️ Project Structure
-
-```
-├── manifest.json              # Extension manifest (MV3)
-├── background.js              # Service worker — proxies LLM API calls
-├── lib/
-│   ├── i18n.js                # Runtime i18n (EN / 中文)
-│   ├── storage.js             # Unified chrome.storage abstraction
-│   └── providers.js           # Provider registry (endpoints & defaults)
-├── content/
-│   ├── statusUI.js            # Floating status overlay
-│   ├── interactionHandler.js  # LLM-driven interaction agent loop
-│   ├── fieldExtractor.js      # LLM-based field extraction
-│   ├── fieldProcessor.js      # Field filling, correction, ambiguity
-│   └── main.js                # Orchestrator (FormFillerAgent + QuickQuery)
-├── popup/
-│   ├── popup.html             # Popup markup with i18n attributes
-│   ├── popup.css              # Popup styles
-│   └── popup.js               # Popup logic & event handling
-├── _locales/
-│   ├── en/messages.json       # Chrome i18n — extension name/description
-│   └── zh_CN/messages.json
-├── icons/                     # Extension icons (16/48/128 px)
-└── README.md
+```bash
+git clone https://github.com/Naihe0/Form_Filling_Chrome_Plugin.git
 ```
 
-### Design Patterns Used
+```bash
+cd Form_Filling_Chrome_Plugin
+```
 
-| Pattern | Where | Purpose |
+```bash
+npm install
+```
+
+```bash
+npm run build
+```
+
+Then open `chrome://extensions`, enable **Developer mode**, click **Load unpacked**, and choose the `dist` folder.
+
+> **Upgrading from v2?** You now load `dist/`, not the repository root, so remove the old unpacked extension first. An unpacked extension's identity depends on its folder, so it starts with empty settings: copy your profile and keys across before removing the old one. Updates through the Chrome Web Store keep their identity, and migrate everything automatically.
+
+## Use
+
+1. **Profile tab:** write about yourself in any language, then save. Name, contact details, education, work, preferences. Do not include passwords or card numbers.
+2. **Fill tab:** choose a provider and enter your API key. Leave Model ID empty for the default.
+3. On a form, click **Start Filling**.
+4. Review the page. The panel lists anything needing your attention, and clicking an item scrolls to it.
+5. Submit the form yourself.
+
+**Overwrite existing values** also rewrites fields that already have content. It is off by default.
+
+**Quick Query:** when enabled, end your text with ` ``` ` or `···` in any text field, and the model continues it using your profile.
+
+## Providers
+
+| Provider | Default model | Tested live |
 |---|---|---|
-| **Module (IIFE)** | All `lib/` and `content/` scripts | Clean globals in the shared content-script world; no ES-module issues. |
-| **Strategy** | `ProviderRegistry` + `background.js` | Swap LLM provider/endpoint without changing call-site code. |
-| **Façade** | `StorageManager` | Single API over `chrome.storage.local` + `sync`, including timestamp-based conflict resolution. |
-| **Observer / Mediator** | Chrome message passing | Popup ↔ Background ↔ Content communication via typed messages. |
-| **Template Method** | `FormFillerAgent.start()` | Fixed algorithm skeleton (extract → value → fill → correct) with swappable LLM calls. |
-| **Agent Loop** | `InteractionHandler` | Iterative observe → reason → act loop for multi-step dynamic UI interaction. |
+| Gemini | `gemini-flash-latest` | Yes, [scored on every fixture](docs/TESTING.md#latest-results) |
+| OpenAI | `gpt-5.2` | No |
+| OpenRouter | `openai/gpt-5.2` | No |
+| Qwen | `qwen3.5-plus` | No |
 
----
+You can enter any model id your provider offers. All four use the same OpenAI-compatible protocol, and the extension drops any request parameter a model rejects. The untested providers should work, but have only been exercised through tests with simulated responses.
 
-## 🌐 Supported Providers
+## Limits
 
-| Provider | Default Model | API Endpoint |
-|---|---|---|
-| **OpenRouter** | `openai/gpt-5.2` | `https://openrouter.ai/api/v1/chat/completions` |
-| **OpenAI** | `gpt-5.2` | `https://api.openai.com/v1/chat/completions` |
-| **Gemini** | `gemini-3-flash-preview` | `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` |
-| **Qwen** | `qwen3.5-plus` | `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions` |
+- It fills the current page only. It never presses Next, so for multi-step forms, run it again on each step.
+- It cannot reach closed shadow roots or forms drawn on a canvas.
+- It cannot use widgets that ignore scripted events (those that check `isTrusted`). The report flags these.
+- Option lists with no text, such as star ratings made only of icons, are not recognised.
+- Prompt injection is mitigated, not eliminated. A malicious page can show a field asking for your phone number, and the model will fill it in. Nothing leaves the page until you submit, which is why reviewing matters. [Details](docs/HARNESS.md#prompt-injection).
+- AI answers can be wrong. Always review before submitting.
 
-You can enter **any** model ID offered by the selected provider.
+## Develop
 
----
+```bash
+npm run watch
+```
 
-## 🔒 Privacy Policy
+```bash
+npm run check
+```
 
-**Last Updated: February 26, 2026**
+`npm run check` runs the type check, unit tests and real-browser tests. Browser tests need Chromium once:
 
-### English
+```bash
+npx playwright install chromium
+```
 
-1. **Information Collected** — User Profile text, API keys, and form-field context from the active page.
-2. **Usage** — Data is sent only to the LLM provider you configure, solely to fill forms or generate content.
-3. **Storage** — Stored via `chrome.storage.local` and `chrome.storage.sync` (managed by Google).
-4. **Sharing** — Data is only shared with the LLM API provider whose key you entered. We do **not** sell or share data with any other party.
-5. **Transmission** — All API calls use HTTPS.
-6. **Control** — You can view, edit, or delete all stored data at any time from the extension popup.
+To score the harness against a live model:
 
-### 中文版本
+```bash
+GEMINI_API_KEY=your-key npm run eval
+```
 
-1. **收集的信息** — 用户画像文本、API 密钥以及当前页面的表单字段上下文。
-2. **使用方式** — 数据仅发送到您配置的 LLM 服务商，用于填写表单或生成内容。
-3. **存储** — 通过 `chrome.storage.local` 和 `chrome.storage.sync` 存储（由 Google 管理）。
-4. **共享** — 数据仅与您输入密钥的 LLM 服务商共享。我们**不会**向任何其他方出售或共享数据。
-5. **传输** — 所有 API 调用均使用 HTTPS。
-6. **控制** — 您可以随时在扩展弹窗中查看、编辑或删除所有存储的数据。
+```bash
+GEMINI_API_KEY=your-key npm run eval:frameworks
+```
 
----
+Run these with a key from your own shell. Never commit a key. See [Testing](docs/TESTING.md) for PowerShell syntax and more.
 
-## 📝 Changelog
+## Documentation
 
-### v2.0
-
-- **Refactored** entire codebase into `lib/`, `content/`, `popup/` modules.
-- **Added** runtime language switching (English ↔ 中文).
-- **Added** multi-provider support: OpenRouter, OpenAI, Gemini, Qwen.
-- **Added** per-provider API key and model ID persistence.
-- **Removed** mem0 integration (was disabled) and DeepSeek/GLM direct endpoints.
-- **Improved** `StorageManager` facade eliminating duplicated local/sync logic.
-- **Improved** popup UI with header, language toggle, and cleaner layout.
-- **Improved** code documentation and separation of concerns.
-- **Added** LLM-driven interaction agent loop for dynamic multi-step widgets.
-
-### v1.1
-
-- Initial public release with form filling, quick query, and mem0 support.
+- [Harness design](docs/HARNESS.md): how the model is kept honest, and why.
+- [Architecture](docs/ARCHITECTURE.md): processes, trust boundaries, data flow.
+- [Testing](docs/TESTING.md): test tiers, the eval suite, latest results.
+- [Privacy policy](PRIVACY.md)
+- [Changelog](CHANGELOG.md)

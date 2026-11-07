@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>2026 开发者问卷</title>
+  <style>
+    body { font-family: sans-serif; max-width: 720px; margin: 24px auto; }
+    .question { margin: 18px 0; }
+    .title { font-weight: 600; margin-bottom: 6px; }
+    .ui-radio { display: flex; gap: 6px; align-items: center; margin: 4px 0; cursor: pointer; }
+    .jqradio { display: inline-block; width: 14px; height: 14px; border: 1px solid #888; border-radius: 50%; }
+    .ui-radio.checked .jqradio { background: #3b82f6; }
+    .option-item { display: inline-block; padding: 4px 12px; border: 1px solid #ccc; margin: 3px; cursor: pointer; }
+    .option-item.is-checked { background: #dbeafe; border-color: #3b82f6; }
+    ul.choices { list-style: none; padding: 0; }
+    li.choice { padding: 4px 8px; margin: 2px 0; border: 1px solid #ddd; cursor: pointer; }
+    li.choice.selected { background: #dbeafe; }
+    th, td { border: 1px solid #ddd; padding: 4px 10px; }
+  </style>
+</head>
+<body>
+  <h2>2026 开发者问卷</h2>
+
+  <form id="survey" onsubmit="window.__submitted = true; return false;">
+    <!-- Native radios hidden behind a styled proxy; the handler sits on the wrapper. -->
+    <div class="question">
+      <div class="title">1. 您的性别 <span>*</span></div>
+      <div class="ui-controlgroup">
+        <div class="ui-radio">
+          <span class="jqradiowrapper"><input type="radio" name="q1" value="1" style="display: none" /><a class="jqradio" href="javascript:;"></a></span>
+          <div class="label">男</div>
+        </div>
+        <div class="ui-radio">
+          <span class="jqradiowrapper"><input type="radio" name="q1" value="2" style="display: none" /><a class="jqradio" href="javascript:;"></a></span>
+          <div class="label">女</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- The substring trap: v2 chose the first option whose text the answer contained. -->
+    <div class="question">
+      <div class="title">2. 您是否吸烟？</div>
+      <div class="ui-controlgroup">
+        <div class="ui-radio">
+          <span class="jqradiowrapper"><input type="radio" name="q2" value="1" style="display: none" /><a class="jqradio" href="javascript:;"></a></span>
+          <div class="label">吸烟</div>
+        </div>
+        <div class="ui-radio">
+          <span class="jqradiowrapper"><input type="radio" name="q2" value="2" style="display: none" /><a class="jqradio" href="javascript:;"></a></span>
+          <div class="label">不吸烟</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- No form controls at all: plain divs with click handlers. -->
+    <div class="question">
+      <div class="title">3. 您会使用哪些编程语言？（多选）</div>
+      <div class="options checkbox-options">
+        <div class="option-item" data-v="js">JavaScript</div>
+        <div class="option-item" data-v="py">Python</div>
+        <div class="option-item" data-v="go">Go</div>
+        <div class="option-item" data-v="rs">Rust</div>
+      </div>
+    </div>
+
+    <div class="question">
+      <div class="title">4. 您的最高学历</div>
+      <ul class="choices">
+        <li class="choice">本科</li>
+        <li class="choice">硕士</li>
+        <li class="choice">博士</li>
+      </ul>
+    </div>
+
+    <!-- Matrix: the options are column headers, the row names the sub-question. -->
+    <div class="question">
+      <div class="title">5. 请评价您对以下语言的熟练程度</div>
+      <table>
+        <thead><tr><th></th><th>不熟悉</th><th>一般</th><th>精通</th></tr></thead>
+        <tbody>
+          <tr><td>Python</td>
+            <td><input type="radio" name="m1" value="1" /></td>
+            <td><input type="radio" name="m1" value="2" /></td>
+            <td><input type="radio" name="m1" value="3" /></td></tr>
+          <tr><td>COBOL</td>
+            <td><input type="radio" name="m2" value="1" /></td>
+            <td><input type="radio" name="m2" value="2" /></td>
+            <td><input type="radio" name="m2" value="3" /></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="question">
+      <div class="title">6. 您所在的城市</div>
+      <select name="city">
+        <option value="">请选择</option>
+        <option value="bj">北京</option>
+        <option value="sh">上海</option>
+        <option value="sz">深圳</option>
+      </select>
+    </div>
+
+    <div class="question">
+      <div class="title">7. 请简单介绍您目前的工作</div>
+      <textarea name="intro" rows="3"></textarea>
+    </div>
+
+    <div class="question">
+      <div class="title">8. 您的血型</div>
+      <input name="blood" />
+    </div>
+
+    <button type="submit">提交</button>
+  </form>
+
+  <script>
+    window.__submitted = false;
+    document.querySelectorAll('.ui-radio').forEach((option) => {
+      option.addEventListener('click', () => {
+        const input = option.querySelector('input');
+        input.checked = true;
+        option.parentElement.querySelectorAll('.ui-radio').forEach((o) => o.classList.remove('checked'));
+        option.classList.add('checked');
+      });
+    });
+    document.querySelectorAll('.option-item').forEach((option) => {
+      option.addEventListener('click', () => option.classList.toggle('is-checked'));
+    });
+    document.querySelectorAll('.choice').forEach((option) => {
+      option.addEventListener('click', () => {
+        option.parentElement.querySelectorAll('.choice').forEach((o) => o.classList.remove('selected'));
+        option.classList.add('selected');
+      });
+    });
+  </script>
+</body>
+</html>

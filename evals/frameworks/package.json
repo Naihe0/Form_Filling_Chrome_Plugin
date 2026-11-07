@@ -1,0 +1,17 @@
+{
+  "name": "ai-form-filler-framework-evals",
+  "private": true,
+  "type": "module",
+  "description": "Real UI libraries for evals/frameworks/run.ts. Kept apart so the main install stays small.",
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@mui/material": "^9.5.0",
+    "antd": "^6.7.0",
+    "dayjs": "^1.11.0",
+    "element-plus": "^2.14.8",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "vue": "^3.5.45"
+  }
+}

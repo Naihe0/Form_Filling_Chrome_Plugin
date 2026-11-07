@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>入职信息</title>
+  <style>
+    body { font-family: sans-serif; max-width: 640px; margin: 24px auto; min-height: 1000px; }
+    .row { margin: 16px 0; }
+    .row > label { display: block; margin-bottom: 4px; }
+    .my-select, .cascader-trigger {
+      display: block; min-height: 30px; padding: 5px 8px; border: 1px solid #aaa; cursor: pointer;
+    }
+    .my-select__placeholder { color: #999; }
+    .popup {
+      position: absolute; background: #fff; border: 1px solid #888; z-index: 100;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2); max-height: 260px; overflow: auto;
+    }
+    .my-option { padding: 4px 10px; cursor: pointer; }
+    .my-option:hover { background: #eef; }
+    .columns { display: flex; }
+    .column { min-width: 100px; border-right: 1px solid #ddd; }
+    .calendar { padding: 8px; }
+    .calendar td { padding: 3px 6px; text-align: center; cursor: pointer; }
+    .calendar .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    input { padding: 5px; width: 100%; box-sizing: border-box; }
+  </style>
+</head>
+<body>
+  <h1>入职信息</h1>
+  <form id="form" onsubmit="window.__submitted = true; return false;">
+    <!-- Popup portalled to <body>, opens on mousedown like Ant Design. -->
+    <div class="row">
+      <label id="city-label">工作城市</label>
+      <div class="my-select" id="city" tabindex="0" aria-labelledby="city-label">
+        <span class="my-select__placeholder">请选择</span>
+      </div>
+    </div>
+
+    <!-- The option text is longer than the natural answer ("硕士"). -->
+    <div class="row">
+      <label id="degree-label">最高学历</label>
+      <div class="my-select" id="degree" tabindex="0" aria-labelledby="degree-label">
+        <span class="my-select__placeholder">请选择</span>
+      </div>
+    </div>
+
+    <!-- The option text bears no resemblance to the answer; needs judgement. -->
+    <div class="row">
+      <label id="mode-label">Preferred work mode</label>
+      <div class="my-select" id="mode" tabindex="0" aria-labelledby="mode-label">
+        <span class="my-select__placeholder">Select...</span>
+      </div>
+    </div>
+
+    <!-- ARIA combobox whose options load asynchronously after typing. -->
+    <div class="row">
+      <label for="country">Country of residence</label>
+      <input id="country" role="combobox" aria-expanded="false" aria-controls="country-list" aria-autocomplete="list" autocomplete="off" />
+    </div>
+
+    <!-- Three-level cascader. -->
+    <div class="row">
+      <label id="region-label">所在地区</label>
+      <div class="cascader-trigger" id="region" tabindex="0" aria-labelledby="region-label">
+        <span class="my-select__placeholder">请选择省/市/区</span>
+      </div>
+    </div>
+
+    <!-- A read-only date input that opens a calendar. Typing is impossible. -->
+    <div class="row">
+      <label for="joined">入职日期</label>
+      <input id="joined" class="date-picker" readonly placeholder="请选择日期" />
+    </div>
+
+    <!-- Traits from real libraries. The click handlers sit on inner wrappers
+         (Element Plus, Ant Design tree nodes), and an empty value renders as a
+         zero-width space (MUI). -->
+    <div class="row">
+      <label id="dept-label">所属部门</label>
+      <div class="my-select" id="dept" tabindex="0" aria-labelledby="dept-label"><div class="inner-trigger"><span class="value">&#8203;</span></div></div>
+    </div>
+
+    <!-- A wrapper around an editable input, which only commits on Enter and
+         reverts on blur otherwise, as date pickers do. -->
+    <div class="row">
+      <label id="grad-label">毕业日期</label>
+      <div class="date-picker" id="grad" aria-labelledby="grad-label"><input placeholder="请选择日期" autocomplete="off" /></div>
+    </div>
+
+    <button type="submit">Submit</button>
+  </form>
+
+  <script>
+    window.__submitted = false;
+    window.__navigated = false;
+
+    function placeUnder(popup, trigger) {
+      const rect = trigger.getBoundingClientRect();
+      popup.style.left = `${rect.left + scrollX}px`;
+      popup.style.top = `${rect.bottom + scrollY + 2}px`;
+      popup.style.minWidth = `${rect.width}px`;
+    }
+
+    let openPopup = null;
+    function closePopup() {
+      openPopup?.remove();
+      openPopup = null;
+    }
+    document.addEventListener('mousedown', (event) => {
+      if (openPopup && !openPopup.contains(event.target) && !event.target.closest('.my-select, .cascader-trigger, #country, #joined')) {
+        closePopup();
+      }
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closePopup();
+    });
+
+    function setShown(trigger, text) {
+      trigger.textContent = text;
+    }
+
+    function dropdown(id, options) {
+      const trigger = document.getElementById(id);
+      trigger.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        closePopup();
+        const popup = document.createElement('div');
+        popup.className = 'popup';
+        for (const text of options) {
+          const option = document.createElement('div');
+          option.className = 'my-option';
+          option.textContent = text;
+          option.addEventListener('click', () => {
+            setShown(trigger, text);
+            closePopup();
+          });
+          popup.append(option);
+        }
+        // A commit button in the popup footer, which must never be pressed.
+        const footer = document.createElement('button');
+        footer.type = 'submit';
+        footer.textContent = '提交';
+        footer.addEventListener('click', () => { window.__submitted = true; });
+        popup.append(footer);
+        const link = document.createElement('a');
+        link.href = 'https://example.test/leave';
+        link.textContent = 'See all cities';
+        link.addEventListener('click', (e) => { e.preventDefault(); window.__navigated = true; });
+        popup.append(link);
+        document.body.append(popup);
+        placeUnder(popup, trigger);
+        openPopup = popup;
+      });
+    }
+    dropdown('city', ['北京', '上海', '深圳', '杭州']);
+    dropdown('degree', ['本科', '硕士研究生', '博士研究生']);
+    dropdown('mode', ['WFH (100%)', 'Hybrid 3-2', 'On-site']);
+
+    /* ---------------- Async combobox ---------------- */
+    const COUNTRIES = ['Canada', 'China', 'Chile', 'France', 'Germany', 'Japan', 'United Kingdom', 'United States'];
+    const country = document.getElementById('country');
+    let searchTimer = 0;
+    country.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      const query = country.value.toLowerCase();
+      searchTimer = setTimeout(() => {
+        closePopup();
+        if (!query) return;
+        const list = document.createElement('ul');
+        list.id = 'country-list';
+        list.className = 'popup';
+        list.setAttribute('role', 'listbox');
+        list.style.listStyle = 'none';
+        list.style.padding = '0';
+        list.style.margin = '0';
+        for (const name of COUNTRIES.filter((c) => c.toLowerCase().includes(query))) {
+          const item = document.createElement('li');
+          item.setAttribute('role', 'option');
+          item.className = 'my-option';
+          item.textContent = name;
+          item.addEventListener('click', () => {
+            country.value = name;
+            country.dataset.committed = name;
+            country.setAttribute('aria-expanded', 'false');
+            closePopup();
+          });
+          list.append(item);
+        }
+        document.body.append(list);
+        placeUnder(list, country);
+        country.setAttribute('aria-expanded', 'true');
+        openPopup = list;
+      }, 150);
+    });
+
+    /* ---------------- Cascader ---------------- */
+    const REGIONS = {
+      广东省: { 深圳市: ['南山区', '福田区'], 广州市: ['天河区', '越秀区'] },
+      浙江省: { 杭州市: ['西湖区', '滨江区'], 宁波市: ['鄞州区'] },
+    };
+    const region = document.getElementById('region');
+    region.addEventListener('click', () => {
+      closePopup();
+      const popup = document.createElement('div');
+      popup.className = 'popup cascader-panel';
+      const columns = document.createElement('div');
+      columns.className = 'columns';
+      popup.append(columns);
+
+      const showColumn = (level, items, path) => {
+        while (columns.children.length > level) columns.lastChild.remove();
+        const column = document.createElement('div');
+        column.className = 'column';
+        const names = Array.isArray(items) ? items : Object.keys(items);
+        for (const name of names) {
+          const option = document.createElement('div');
+          option.className = 'my-option';
+          option.textContent = name;
+          option.addEventListener('click', () => {
+            const next = Array.isArray(items) ? null : items[name];
+            const nextPath = [...path, name];
+            if (next) showColumn(level + 1, next, nextPath);
+            else {
+              setShown(region, nextPath.join(' / '));
+              closePopup();
+            }
+          });
+          column.append(option);
+        }
+        columns.append(column);
+      };
+      showColumn(0, REGIONS, []);
+      document.body.append(popup);
+      placeUnder(popup, region);
+      openPopup = popup;
+    });
+
+    /* ---------------- Handlers on inner wrappers ---------------- */
+    const dept = document.getElementById('dept');
+    const deptValue = dept.querySelector('.value');
+    dept.querySelector('.inner-trigger').addEventListener('click', () => {
+      closePopup();
+      const popup = document.createElement('div');
+      popup.className = 'popup';
+      for (const name of ['Engineering', 'Design', 'Sales']) {
+        const node = document.createElement('div');
+        node.className = 'tree-node';
+        const icon = document.createElement('span');
+        icon.className = 'tree-switcher';
+        const title = document.createElement('span');
+        title.className = 'tree-title';
+        title.style.cursor = 'pointer';
+        title.textContent = name;
+        title.addEventListener('click', () => {
+          deptValue.textContent = name;
+          closePopup();
+        });
+        node.append(icon, title);
+        popup.append(node);
+      }
+      document.body.append(popup);
+      placeUnder(popup, dept);
+      openPopup = popup;
+    });
+
+    /* ---------------- Commits on Enter, reverts on blur ---------------- */
+    const gradInput = document.querySelector('#grad input');
+    let gradCommitted = '';
+    gradInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' && /^\d{4}-\d{2}-\d{2}$/.test(gradInput.value)) {
+        gradCommitted = gradInput.value;
+        gradInput.dataset.committed = gradCommitted;
+      }
+    });
+    gradInput.addEventListener('blur', () => { gradInput.value = gradCommitted; });
+
+    /* ---------------- Calendar ---------------- */
+    const joined = document.getElementById('joined');
+    joined.addEventListener('click', () => {
+      closePopup();
+      let year = 2021;
+      let month = 0;
+
+      const popup = document.createElement('div');
+      popup.className = 'popup calendar';
+      const draw = () => {
+        popup.innerHTML = '';
+        const head = document.createElement('div');
+        head.className = 'head';
+        const prev = document.createElement('button');
+        prev.type = 'button';
+        prev.textContent = '上个月';
+        const next = document.createElement('button');
+        next.type = 'button';
+        next.textContent = '下个月';
+        const title = document.createElement('span');
+        title.textContent = `${year}年${month + 1}月`;
+        prev.addEventListener('click', () => {
+          month--;
+          if (month < 0) { month = 11; year--; }
+          draw();
+        });
+        next.addEventListener('click', () => {
+          month++;
+          if (month > 11) { month = 0; year++; }
+          draw();
+        });
+        head.append(prev, title, next);
+        popup.append(head);
+
+        const table = document.createElement('table');
+        const days = new Date(year, month + 1, 0).getDate();
+        let row = table.insertRow();
+        for (let day = 1; day <= days; day++) {
+          if (row.cells.length === 7) row = table.insertRow();
+          const cell = row.insertCell();
+          cell.textContent = String(day);
+          cell.addEventListener('click', () => {
+            const pad = (n) => String(n).padStart(2, '0');
+            joined.value = `${year}-${pad(month + 1)}-${pad(day)}`;
+            closePopup();
+          });
+        }
+        popup.append(table);
+      };
+      draw();
+      document.body.append(popup);
+      placeUnder(popup, joined);
+      openPopup = popup;
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+reports/
+evals/frameworks/build/
+.env
+.env.*
+*.log
