@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Form Filler</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <span class="header-title" data-i18n="extensionName">AI Form Filler</span>
+      <div class="lang-toggle">
+        <button id="langEn" class="lang-btn" type="button">EN</button>
+        <button id="langZh" class="lang-btn" type="button">中文</button>
+      </div>
+    </header>
+
+    <nav id="tabBar" class="tab-bar">
+      <button id="tabProfile" class="tab" type="button" data-i18n="tabProfile">Profile</button>
+      <button id="tabFill" class="tab" type="button" data-i18n="tabFill">Fill</button>
+    </nav>
+
+    <section id="viewProfile" class="view" hidden>
+      <textarea id="profile" data-i18n-placeholder="profilePlaceholder" aria-labelledby="tabProfile"></textarea>
+      <p class="help" data-i18n="profileHelp"></p>
+      <button id="saveProfile" class="btn btn-primary" type="button" data-i18n="saveBtn">Save</button>
+    </section>
+
+    <section id="viewFill" class="view">
+      <div class="form-group">
+        <label for="provider" data-i18n="serviceProvider">Service Provider</label>
+        <select id="provider"></select>
+      </div>
+      <div class="form-group">
+        <label for="model" data-i18n="modelId">Model ID</label>
+        <input id="model" type="text" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="form-group">
+        <label for="apiKey" data-i18n="apiKey">API Key</label>
+        <input id="apiKey" type="password" autocomplete="off" spellcheck="false" data-i18n-placeholder="apiKeyPlaceholder" />
+      </div>
+
+      <label class="toggle-row">
+        <span data-i18n="overwriteExisting">Overwrite existing values</span>
+        <span class="switch">
+          <input id="overwrite" type="checkbox" />
+          <span class="slider"></span>
+        </span>
+      </label>
+      <label class="toggle-row">
+        <span data-i18n="quickQuery">Quick Query</span>
+        <span class="switch">
+          <input id="quickQuery" type="checkbox" />
+          <span class="slider"></span>
+        </span>
+      </label>
+      <p class="help" data-i18n="quickQueryHint"></p>
+
+      <button id="start" class="btn btn-primary" type="button" data-i18n="startFilling">Start Filling</button>
+    </section>
+
+    <section id="viewRunning" class="view" hidden>
+      <div class="spinner-wrap"><div class="spinner"></div></div>
+      <p id="progress" class="progress" role="status"></p>
+      <button id="stop" class="btn btn-danger" type="button" data-i18n="stopFilling">Stop</button>
+    </section>
+
+    <section id="viewReport" class="view" hidden>
+      <p id="reportTitle" class="report-title" role="status"></p>
+      <p id="reportSummary" class="help"></p>
+      <div id="reportAttention" hidden>
+        <p class="report-heading" data-i18n="reportAttention"></p>
+        <ul id="reportList" class="report-list"></ul>
+      </div>
+      <p id="reportUsage" class="report-usage"></p>
+      <button id="back" class="btn" type="button" data-i18n="fillAgain">Back</button>
+    </section>
+
+    <div id="status" class="status" role="status"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

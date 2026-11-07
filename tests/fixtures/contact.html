@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Job Application</title>
+  <style>
+    body { font-family: sans-serif; max-width: 640px; margin: 24px auto; }
+    label, .row { display: block; margin: 10px 0; }
+    .upload { position: relative; display: inline-block; padding: 6px 10px; border: 1px solid #999; }
+    .upload input { position: absolute; inset: 0; opacity: 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <form role="search"><input type="search" name="q" placeholder="Search this site" /></form>
+  </header>
+
+  <h1>Job Application</h1>
+
+  <form id="application" action="/submit" onsubmit="window.__submitted = true; return false;">
+    <input type="hidden" name="csrf_token" value="CSRF-SECRET-VALUE" />
+
+    <fieldset>
+      <legend>About you</legend>
+
+      <!-- label[for] -->
+      <div class="row">
+        <label for="name">Full name *</label>
+        <input id="name" name="fullName" required />
+      </div>
+
+      <!-- wrapping label -->
+      <label>Email <input type="email" name="email" /></label>
+
+      <!-- aria-label only -->
+      <div class="row"><input type="tel" name="phone" aria-label="Phone number" /></div>
+
+      <!-- text in a sibling element -->
+      <div class="row">
+        <div>Date of birth</div>
+        <div><input type="date" name="dob" /></div>
+      </div>
+
+      <!-- table layout -->
+      <table>
+        <tr>
+          <td>Years of experience</td>
+          <td><input type="number" name="years" /></td>
+        </tr>
+      </table>
+
+      <!-- placeholder is the only name -->
+      <div class="row"><input type="url" name="site" placeholder="Personal website" /></div>
+
+      <!-- already holds a value the user typed -->
+      <label>Nickname <input name="nickname" value="Existing value" /></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Gender</legend>
+      <label><input type="radio" name="gender" value="m" /> Male</label>
+      <label><input type="radio" name="gender" value="f" /> Female</label>
+      <label><input type="radio" name="gender" value="x" /> Prefer not to say</label>
+    </fieldset>
+
+    <div class="row">
+      <label for="education">Highest education</label>
+      <select id="education" name="education">
+        <option value="">-- Please select --</option>
+        <option value="hs">High school</option>
+        <option value="ba">Bachelor's degree</option>
+        <option value="ma">Master's degree</option>
+        <option value="phd">Doctorate</option>
+      </select>
+    </div>
+
+    <fieldset>
+      <legend>Programming languages</legend>
+      <label><input type="checkbox" name="skills" value="js" /> JavaScript</label>
+      <label><input type="checkbox" name="skills" value="py" /> Python</label>
+      <label><input type="checkbox" name="skills" value="go" /> Go</label>
+      <label><input type="checkbox" name="skills" value="rs" /> Rust</label>
+    </fieldset>
+
+    <div class="row">
+      <label for="note">Why do you want this job?</label>
+      <textarea id="note" name="note" rows="3"></textarea>
+    </div>
+
+    <label><input type="checkbox" name="tos" /> I agree to the Terms of Service</label>
+
+    <label>Create a password <input type="password" name="password" /></label>
+    <label>Card number <input name="cardnum" autocomplete="cc-number" /></label>
+    <div class="row">
+      Resume
+      <span class="upload">Choose file<input type="file" name="resume" aria-label="Resume" /></span>
+    </div>
+
+    <!-- Traps: a person cannot see or reach any of these. -->
+    <div style="position: absolute; left: -9999px">
+      <label>Leave this empty <input name="hp_offscreen" /></label>
+    </div>
+    <input name="hp_display" style="display: none" />
+    <div style="height: 0; overflow: hidden"><input name="hp_collapsed" /></div>
+    <input name="hp_transparent" aria-label="Confirm email" style="opacity: 0" />
+
+    <button type="submit">Submit application</button>
+  </form>
+
+  <footer><a href="/privacy">Privacy</a></footer>
+</body>
+</html>
